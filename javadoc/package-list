@@ -17,6 +17,7 @@ com.facebook.buck.bser
 com.facebook.buck.cli
 com.facebook.buck.cli.bootstrapper
 com.facebook.buck.command
+com.facebook.buck.config
 com.facebook.buck.counters
 com.facebook.buck.cxx
 com.facebook.buck.cxx.elf
