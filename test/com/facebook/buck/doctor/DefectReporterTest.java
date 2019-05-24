@@ -20,7 +20,9 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.doctor.config.DoctorConfig;
-import com.facebook.buck.doctor.config.SourceControlInfo;
+import com.facebook.buck.doctor.config.ImmutableDoctorConfig;
+import com.facebook.buck.doctor.config.ImmutableSourceControlInfo;
+import com.facebook.buck.doctor.config.ImmutableUserLocalConfiguration;
 import com.facebook.buck.doctor.config.UserLocalConfiguration;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -64,7 +66,7 @@ public class DefectReporterTest {
   @Test
   public void testAttachesPaths() throws Exception {
     UserLocalConfiguration userLocalConfiguration =
-        UserLocalConfiguration.of(
+        new ImmutableUserLocalConfiguration(
             true,
             ImmutableMap.of(
                 Paths.get(".buckconfig.local"),
@@ -75,7 +77,7 @@ public class DefectReporterTest {
 
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
-    DoctorConfig config = DoctorConfig.of(FakeBuckConfig.builder().build());
+    DoctorConfig config = new ImmutableDoctorConfig(FakeBuckConfig.builder().build());
     Clock clock = new DefaultClock();
     DefectReporter reporter =
         new DefaultDefectReporter(
@@ -102,7 +104,7 @@ public class DefectReporterTest {
   @Test
   public void testAttachesReport() throws Exception {
     UserLocalConfiguration testUserLocalConfiguration =
-        UserLocalConfiguration.of(
+        new ImmutableUserLocalConfiguration(
             true,
             ImmutableMap.of(
                 Paths.get(".buckconfig.local"),
@@ -113,7 +115,7 @@ public class DefectReporterTest {
 
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
-    DoctorConfig config = DoctorConfig.of(FakeBuckConfig.builder().build());
+    DoctorConfig config = new ImmutableDoctorConfig(FakeBuckConfig.builder().build());
     Clock clock = new DefaultClock();
     DefectReporter reporter =
         new DefaultDefectReporter(
@@ -163,10 +165,10 @@ public class DefectReporterTest {
   @Test
   public void testSourceControlExceptionAllowsGeneratingReport() throws Exception {
     UserLocalConfiguration testUserLocalConfiguration =
-        UserLocalConfiguration.of(true, ImmutableMap.of(), ImmutableMap.of());
+        new ImmutableUserLocalConfiguration(true, ImmutableMap.of(), ImmutableMap.of());
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
-    DoctorConfig config = DoctorConfig.of(FakeBuckConfig.builder().build());
+    DoctorConfig config = new ImmutableDoctorConfig(FakeBuckConfig.builder().build());
     Clock clock = new DefaultClock();
     DefectReporter reporter =
         new DefaultDefectReporter(
@@ -178,7 +180,7 @@ public class DefectReporterTest {
                 .setBuildEnvironmentDescription(TEST_ENV_DESCRIPTION)
                 .setUserLocalConfiguration(testUserLocalConfiguration)
                 .setSourceControlInfo(
-                    SourceControlInfo.of(
+                    new ImmutableSourceControlInfo(
                         "commitid",
                         ImmutableSet.of("base"),
                         Optional.empty(),

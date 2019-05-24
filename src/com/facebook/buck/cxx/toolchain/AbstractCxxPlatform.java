@@ -119,8 +119,6 @@ interface AbstractCxxPlatform extends FlavorConvertible {
 
   DebugPathSanitizer getCompilerDebugPathSanitizer();
 
-  DebugPathSanitizer getAssemblerDebugPathSanitizer();
-
   HeaderVerification getHeaderVerification();
 
   Optional<Boolean> getUseArgFile();
@@ -163,4 +161,10 @@ interface AbstractCxxPlatform extends FlavorConvertible {
 
   /** @return the explicit header mode to use for this platform. */
   Optional<HeaderMode> getHeaderMode();
+
+  /** @return whether shorter names for intermediate files should be used */
+  @Value.Default
+  default boolean getFilepathLengthLimited() {
+    return false;
+  }
 }

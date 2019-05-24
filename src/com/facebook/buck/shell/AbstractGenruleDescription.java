@@ -29,19 +29,18 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.SourceSet;
-import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathAbiMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroContainer;
+import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MavenCoordinatesMacroExpander;
 import com.facebook.buck.rules.macros.QueryOutputsMacroExpander;
 import com.facebook.buck.rules.macros.QueryPathsMacroExpander;
@@ -53,7 +52,6 @@ import com.facebook.buck.rules.macros.WorkerMacro;
 import com.facebook.buck.rules.macros.WorkerMacroArg;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
-import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
@@ -127,7 +125,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
    * @return the {@link com.facebook.buck.rules.macros.MacroExpander}s which apply to the macros in
    *     this description.
    */
-  protected Optional<ImmutableList<AbstractMacroExpander<? extends Macro, ?>>> getMacroHandler(
+  protected Optional<ImmutableList<MacroExpander<? extends Macro, ?>>> getMacroHandler(
       @SuppressWarnings("unused") BuildTarget buildTarget,
       @SuppressWarnings("unused") ProjectFilesystem filesystem,
       @SuppressWarnings("unused") BuildRuleResolver resolver,
@@ -154,7 +152,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
       BuildRuleParams params,
       T args) {
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
-    Optional<ImmutableList<AbstractMacroExpander<? extends Macro, ?>>> maybeExpanders =
+    Optional<ImmutableList<MacroExpander<? extends Macro, ?>>> maybeExpanders =
         getMacroHandler(
             buildTarget,
             context.getProjectFilesystem(),
@@ -162,13 +160,13 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
             context.getTargetGraph(),
             args);
     if (maybeExpanders.isPresent()) {
-      ImmutableList<AbstractMacroExpander<? extends Macro, ?>> expanders = maybeExpanders.get();
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
+      ImmutableList<MacroExpander<? extends Macro, ?>> expanders = maybeExpanders.get();
       StringWithMacrosConverter converter =
-          StringWithMacrosConverter.of(buildTarget, context.getCellPathResolver(), expanders);
+          StringWithMacrosConverter.of(
+              buildTarget, context.getCellPathResolver(), graphBuilder, expanders);
       Function<StringWithMacros, Arg> toArg =
           str -> {
-            Arg arg = converter.convert(str, graphBuilder);
+            Arg arg = converter.convert(str);
             if (RichStream.from(str.getMacros())
                 .map(MacroContainer::getMacro)
                 .anyMatch(WorkerMacro.class::isInstance)) {
@@ -184,10 +182,10 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
           context.getProjectFilesystem(),
           params.withExtraDeps(
               Stream.concat(
-                      ruleFinder.filterBuildRuleInputs(args.getSrcs().getPaths()).stream(),
+                      graphBuilder.filterBuildRuleInputs(args.getSrcs().getPaths()).stream(),
                       Stream.of(cmd, bash, cmdExe)
-                          .flatMap(Optionals::toStream)
-                          .flatMap(input -> BuildableSupport.getDeps(input, ruleFinder)))
+                          .flatMap(RichStream::from)
+                          .flatMap(input -> BuildableSupport.getDeps(input, graphBuilder)))
                   .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder()))),
           graphBuilder,
           args,

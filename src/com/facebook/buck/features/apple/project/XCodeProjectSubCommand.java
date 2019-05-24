@@ -23,8 +23,8 @@ import com.facebook.buck.cli.CommandThreadManager;
 import com.facebook.buck.cli.ProjectGeneratorParameters;
 import com.facebook.buck.cli.ProjectSubCommand;
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
@@ -108,12 +108,15 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
             params.getBuckConfig(),
             params.getVersionedTargetGraphCache(),
             params.getTypeCoercerFactory(),
+            params.getUnconfiguredBuildTargetFactory(),
             params.getCell(),
             params.getRuleKeyConfiguration(),
+            params.getTargetConfiguration(),
             params.getConsole(),
             params.getProcessManager(),
             params.getEnvironment(),
             params.getExecutors().get(ExecutorPool.PROJECT),
+            executor,
             projectCommandArguments,
             appleCxxPlatformsProvider.getAppleCxxPlatforms().getFlavors(),
             getAbsoluteHeaderMapPaths(params.getBuckConfig()),
@@ -137,7 +140,7 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
                 throw new RuntimeException("Cannot run a build", e);
               }
             });
-    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator(executor);
+    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator();
   }
 
   private ExitCode runBuild(CommandRunnerParams params, ImmutableList<String> arguments)

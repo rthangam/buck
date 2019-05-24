@@ -17,10 +17,12 @@
 package com.facebook.buck.util;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,9 +57,16 @@ public class MoreMaps {
     return map;
   }
 
+  /**
+   * Transform a map to another immutable map by changing keys and keeping values
+   *
+   * @param map Source map to transform
+   * @param transformer Function to apply to source map key to infer resulting map key
+   * @return New immutable map with new keys and corresponding values
+   */
   public static <K1, K2, V> ImmutableMap<K2, V> transformKeys(
       Map<K1, V> map, Function<? super K1, K2> transformer) {
-    ImmutableMap.Builder<K2, V> transformedMap = ImmutableMap.builder();
+    ImmutableMap.Builder<K2, V> transformedMap = ImmutableMap.builderWithExpectedSize(map.size());
     for (Map.Entry<K1, V> ent : map.entrySet()) {
       transformedMap.put(Objects.requireNonNull(transformer.apply(ent.getKey())), ent.getValue());
     }
@@ -88,12 +97,20 @@ public class MoreMaps {
   public static <K extends Comparable<?>, V>
       ImmutableSortedMap<K, ImmutableList<V>> convertMultimapToMapOfLists(
           ImmutableMultimap<K, V> multimap) {
-    return multimap
-        .asMap()
-        .entrySet()
-        .stream()
+    return multimap.asMap().entrySet().stream()
         .collect(
             ImmutableSortedMap.toImmutableSortedMap(
                 Ordering.natural(), e -> e.getKey(), e -> ImmutableList.copyOf(e.getValue())));
+  }
+
+  /**
+   * Version of {@link Maps#filterValues(Map, Predicate)} that collects the results in an immutable
+   * map.
+   *
+   * @see Maps#filterValues(Map, Predicate)
+   */
+  public static <K, V> ImmutableMap<K, V> filterValues(
+      Map<K, V> unfiltered, final Predicate<? super V> valuePredicate) {
+    return ImmutableMap.copyOf(Maps.filterValues(unfiltered, valuePredicate));
   }
 }

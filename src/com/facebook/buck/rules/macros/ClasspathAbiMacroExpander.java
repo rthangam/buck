@@ -47,13 +47,6 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
     return ClasspathAbiMacro.class;
   }
 
-  @Override
-  protected ClasspathAbiMacro parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    return ClasspathAbiMacro.of(parseBuildTarget(target, cellNames, input));
-  }
-
   private HasClasspathEntries getHasClasspathEntries(BuildRule rule) throws MacroException {
     if (!(rule instanceof HasClasspathEntries)) {
       throw new MacroException(
@@ -111,9 +104,7 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
   protected Arg expand(ActionGraphBuilder graphBuilder, BuildRule inputRule) throws MacroException {
 
     ImmutableList<SourcePath> jarPaths =
-        getHasClasspathEntries(inputRule)
-            .getTransitiveClasspathDeps()
-            .stream()
+        getHasClasspathEntries(inputRule).getTransitiveClasspathDeps().stream()
             .filter(d -> d.getSourcePathToOutput() != null)
             .map(d -> getJarPath(d, graphBuilder))
             .filter(Objects::nonNull)
@@ -134,8 +125,7 @@ public class ClasspathAbiMacroExpander extends BuildTargetMacroExpander<Classpat
     @Override
     public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
       consumer.accept(
-          classpath
-              .stream()
+          classpath.stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
               .sorted(Ordering.natural())

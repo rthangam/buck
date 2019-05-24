@@ -33,12 +33,11 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacFactory;
@@ -109,7 +108,6 @@ public class AndroidAarDescription
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     buildTarget.assertUnflavored();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ImmutableSortedSet.Builder<BuildRule> aarExtraDepsBuilder =
         new ImmutableSortedSet.Builder<BuildRule>(Ordering.natural())
             .addAll(originalBuildRuleParams.getExtraDeps().get());
@@ -132,10 +130,7 @@ public class AndroidAarDescription
     /* assemble dirs */
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
-            buildTarget,
-            /* buildTargetsToExcludeFromDex */ ImmutableSet.of(),
-            /* resourcesToExclude */ ImmutableSet.of(),
-            apkModuleGraph);
+            buildTarget, /* buildTargetsToExcludeFromDex */ ImmutableSet.of(), apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(originalBuildRuleParams.getBuildDeps()),
         graphBuilder);
@@ -147,22 +142,19 @@ public class AndroidAarDescription
         new AssembleDirectories(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_ASSETS_FLAVOR),
             projectFilesystem,
-            ruleFinder,
+            graphBuilder,
             assetsDirectories);
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleAssetsDirectories));
 
     ImmutableCollection<SourcePath> resDirectories =
-        packageableCollection
-            .getResourceDetails()
-            .values()
-            .stream()
+        packageableCollection.getResourceDetails().values().stream()
             .flatMap(resourceDetails -> resourceDetails.getResourceDirectories().stream())
             .collect(ImmutableList.toImmutableList());
     MergeAndroidResourceSources assembleResourceDirectories =
         new MergeAndroidResourceSources(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_RESOURCE_FLAVOR),
             projectFilesystem,
-            ruleFinder,
+            graphBuilder,
             resDirectories);
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleResourceDirectories));
 
@@ -179,7 +171,7 @@ public class AndroidAarDescription
             buildTarget.withAppendedFlavors(AAR_ANDROID_RESOURCE_FLAVOR),
             projectFilesystem,
             androidResourceParams,
-            ruleFinder,
+            graphBuilder,
             /* deps */ ImmutableSortedSet.<BuildRule>naturalOrder()
                 .add(assembleAssetsDirectories)
                 .add(assembleResourceDirectories)
@@ -219,7 +211,7 @@ public class AndroidAarDescription
               args.getBuildConfigValues(),
               Optional.empty(),
               graphBuilder,
-              javacFactory.create(ruleFinder, args),
+              javacFactory.create(graphBuilder, args),
               toolchainProvider
                   .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                   .getJavacOptions(),
@@ -227,8 +219,7 @@ public class AndroidAarDescription
       buildConfigRules.forEach(graphBuilder::addToIndex);
       aarExtraDepsBuilder.addAll(buildConfigRules);
       classpathToIncludeInAar.addAll(
-          buildConfigRules
-              .stream()
+          buildConfigRules.stream()
               .map(BuildRule::getSourcePathToOutput)
               .collect(Collectors.toList()));
     }
@@ -241,7 +232,6 @@ public class AndroidAarDescription
             graphBuilder,
             buildTarget,
             projectFilesystem,
-            originalBuildRuleParams,
             ImmutableSet.of(),
             cxxBuckConfig,
             /* nativeLibraryMergeMap */ Optional.empty(),

@@ -16,18 +16,20 @@
 
 package com.facebook.buck.core.graph.transformation;
 
+import com.facebook.buck.core.graph.transformation.model.ComputeKey;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import java.util.Optional;
 
 /**
- * Interface for a Cache object that {@link DefaultGraphTransformationEngine} uses to store results
- * that have finished computing so that the results can be reused.
+ * Interface for a Cache object that {@link GraphTransformationEngine} uses to store results that
+ * have finished computing so that the results can be reused.
  *
  * <p>The cache should be thread safe
  *
  * @param <Key> Key to the cache
  * @param <Value> Value stored by Cache
  */
-public interface GraphEngineCache<Key, Value> {
+public interface GraphEngineCache<Key extends ComputeKey<Value>, Value extends ComputeResult> {
 
   /**
    * Optionally returns the cached result given the key

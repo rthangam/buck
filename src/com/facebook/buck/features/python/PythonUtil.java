@@ -22,7 +22,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
@@ -32,7 +31,7 @@ import com.facebook.buck.cxx.OmnibusLibraries;
 import com.facebook.buck.cxx.OmnibusLibrary;
 import com.facebook.buck.cxx.OmnibusRoot;
 import com.facebook.buck.cxx.OmnibusRoots;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
@@ -40,15 +39,15 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
-import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.CaseFormat;
@@ -71,7 +70,7 @@ import java.util.Optional;
 
 public class PythonUtil {
 
-  static final ImmutableList<AbstractMacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+  static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
       ImmutableList.of(new LocationMacroExpander());
 
   private PythonUtil() {}
@@ -81,17 +80,12 @@ public class PythonUtil {
       CxxPlatform cxxPlatform,
       ImmutableSortedSet<BuildTarget> deps,
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps) {
-    return RichStream.<BuildTarget>empty()
-        .concat(deps.stream())
+    return RichStream.from(deps)
         .concat(
-            platformDeps
-                .getMatchingValues(pythonPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .concat(
-            platformDeps
-                .getMatchingValues(cxxPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(cxxPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .toImmutableList();
   }
@@ -99,8 +93,6 @@ public class PythonUtil {
   public static ImmutableMap<Path, SourcePath> getModules(
       BuildTarget target,
       ActionGraphBuilder graphBuilder,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String parameter,
@@ -111,16 +103,19 @@ public class PythonUtil {
       Optional<ImmutableMap<BuildTarget, Version>> versions) {
     return CxxGenruleDescription.fixupSourcePaths(
         graphBuilder,
-        ruleFinder,
         cxxPlatform,
         ImmutableMap.<Path, SourcePath>builder()
             .putAll(
                 PythonUtil.toModuleMap(
-                    target, pathResolver, parameter, baseModule, ImmutableList.of(items)))
+                    target,
+                    graphBuilder.getSourcePathResolver(),
+                    parameter,
+                    baseModule,
+                    ImmutableList.of(items)))
             .putAll(
                 PythonUtil.toModuleMap(
                     target,
-                    pathResolver,
+                    graphBuilder.getSourcePathResolver(),
                     "platform" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
                     baseModule,
                     Iterables.concat(
@@ -129,7 +124,7 @@ public class PythonUtil {
             .putAll(
                 PythonUtil.toModuleMap(
                     target,
-                    pathResolver,
+                    graphBuilder.getSourcePathResolver(),
                     "versioned" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
                     baseModule,
                     versions.isPresent() && versionItems.isPresent()
@@ -170,7 +165,7 @@ public class PythonUtil {
       throw new HumanReadableException("%s: missing extension for module path: %s", target, name);
     }
     name = name.substring(0, ext);
-    return MorePaths.pathWithUnixSeparators(name).replace('/', '.');
+    return PathFormatter.pathWithUnixSeparators(name).replace('/', '.');
   }
 
   static PythonPackageComponents getAllComponents(
@@ -179,7 +174,6 @@ public class PythonUtil {
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ActionGraphBuilder graphBuilder,
-      SourcePathRuleFinder ruleFinder,
       Iterable<BuildRule> deps,
       PythonPackageComponents packageComponents,
       PythonPlatform pythonPlatform,
@@ -259,7 +253,6 @@ public class PythonUtil {
               params,
               cellPathResolver,
               graphBuilder,
-              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,
@@ -320,8 +313,7 @@ public class PythonUtil {
               graphBuilder,
               Iterables.concat(nativeLinkableRoots.values(), extensionNativeDeps.values()));
       for (NativeLinkable nativeLinkable : nativeLinkables.values()) {
-        NativeLinkable.Linkage linkage =
-            nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage linkage = nativeLinkable.getPreferredLinkage(cxxPlatform);
         if (nativeLinkableRoots.containsKey(nativeLinkable.getBuildTarget())
             || linkage != NativeLinkable.Linkage.STATIC) {
           ImmutableMap<String, SourcePath> libs =

@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeArg;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -29,10 +30,8 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -45,11 +44,9 @@ import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.testutil.HashMapWithStats;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.SortedSet;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -108,6 +105,7 @@ public class QueryOutputsMacroExpanderTest {
         StringWithMacrosConverter.builder()
             .setBuildTarget(ruleNode.getBuildTarget())
             .setCellPathResolver(cellNames)
+            .setActionGraphBuilder(graphBuilder)
             .addExpanders(new QueryOutputsMacroExpander(Optional.empty()))
             .setPrecomputedWorkCache(cache)
             .build();
@@ -175,12 +173,7 @@ public class QueryOutputsMacroExpanderTest {
   private TargetNode<FakeTargetNodeArg> newNoopNode(String buildTarget) {
     return FakeTargetNodeBuilder.build(
         new NoopBuildRule(
-            BuildTargetFactory.newInstance(filesystem.getRootPath(), buildTarget), filesystem) {
-          @Override
-          public SortedSet<BuildRule> getBuildDeps() {
-            return ImmutableSortedSet.of();
-          }
-        });
+            BuildTargetFactory.newInstance(filesystem.getRootPath(), buildTarget), filesystem));
   }
 
   private String coerceAndStringify(String input, BuildRule rule) throws CoerceFailedException {
@@ -188,9 +181,13 @@ public class QueryOutputsMacroExpanderTest {
         (StringWithMacros)
             new DefaultTypeCoercerFactory()
                 .typeCoercerForType(StringWithMacros.class)
-                .coerce(cellNames, filesystem, rule.getBuildTarget().getBasePath(), input);
-    Arg arg = converter.convert(stringWithMacros, graphBuilder);
-    return Arg.stringify(
-        arg, DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)));
+                .coerce(
+                    cellNames,
+                    filesystem,
+                    rule.getBuildTarget().getBasePath(),
+                    EmptyTargetConfiguration.INSTANCE,
+                    input);
+    Arg arg = converter.convert(stringWithMacros);
+    return Arg.stringify(arg, graphBuilder.getSourcePathResolver());
   }
 }

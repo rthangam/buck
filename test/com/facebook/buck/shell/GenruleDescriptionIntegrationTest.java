@@ -236,12 +236,18 @@ public class GenruleDescriptionIntegrationTest {
             getOutputFile("//:resources_b").toString()));
   }
 
+  @Test
+  public void classpathMacroOnBinary() throws Exception {
+    expectGenruleOutput(
+        ":echo_classpath_binary",
+        ImmutableList.of("//:app", "//:lib_a", "//:lib_b", "//:lib_d", "//annotations:proc-lib"));
+  }
+
   private void expectOutputPathsGenruleOutput(String genrule, List<String> expectedOutputs)
       throws Exception {
     expectGenruleOutput(
         genrule,
-        expectedOutputs
-            .stream()
+        expectedOutputs.stream()
             .map(this::getOutputFile)
             .map(Path::toString)
             .collect(Collectors.toList()));

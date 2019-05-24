@@ -21,11 +21,11 @@ import static com.google.common.collect.Ordering.natural;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -226,9 +226,7 @@ public class MergeAndroidResourcesStep implements Step {
             });
         uberRDotTxtIds =
             Optional.of(
-                uberRdotTxtEntries
-                    .build()
-                    .stream()
+                uberRdotTxtEntries.build().stream()
                     .collect(ImmutableMap.toImmutableMap(input -> input, input -> input.idValue)));
       }
       ImmutableMap<Path, String> symbolsFileToRDotJavaPackage = rDotTxtToPackage.build();
@@ -448,9 +446,7 @@ public class MergeAndroidResourcesStep implements Step {
       List<RDotTxtEntry> linesInSymbolsFile;
       try {
         linesInSymbolsFile =
-            filesystem
-                .readLines(symbolsFile)
-                .stream()
+            filesystem.readLines(symbolsFile).stream()
                 .filter(input -> !Strings.isNullOrEmpty(input))
                 .map(MergeAndroidResourcesStep::parseEntryOrThrow)
                 .collect(Collectors.toList());
@@ -676,8 +672,7 @@ public class MergeAndroidResourcesStep implements Step {
   @Override
   public String getDescription(ExecutionContext context) {
     List<String> resources =
-        androidResourceDeps
-            .stream()
+        androidResourceDeps.stream()
             .map(Object::toString)
             .sorted(natural())
             .collect(Collectors.toList());

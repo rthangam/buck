@@ -22,6 +22,7 @@ import static org.junit.Assert.assertNull;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -29,9 +30,10 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -108,6 +110,7 @@ public class CxxLibraryTest {
                     .setIncludeRoot(
                         Either.ofRight(
                             DefaultBuildTargetSourcePath.of(publicHeaderSymlinkTreeTarget)))
+                    .setSymlinkTreeClass(HeaderSymlinkTree.class.getName())
                     .build())
             .build();
     assertEquals(
@@ -127,6 +130,7 @@ public class CxxLibraryTest {
                         ImmutableSortedMap.of(
                             Paths.get("header.h"),
                             DefaultBuildTargetSourcePath.of(privateHeaderTarget)))
+                    .setSymlinkTreeClass(HeaderSymlinkTree.class.getName())
                     .build())
             .build();
     assertEquals(
@@ -143,7 +147,10 @@ public class CxxLibraryTest {
     assertEquals(
         expectedStaticNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
-            cxxPlatform, Linker.LinkableDepType.STATIC, graphBuilder));
+            cxxPlatform,
+            Linker.LinkableDepType.STATIC,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
 
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
@@ -155,7 +162,10 @@ public class CxxLibraryTest {
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
-            cxxPlatform, Linker.LinkableDepType.SHARED, graphBuilder));
+            cxxPlatform,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
@@ -187,13 +197,12 @@ public class CxxLibraryTest {
             target,
             projectFilesystem,
             params,
-            graphBuilder.getParallelizer(),
             CxxDeps.of(),
             CxxDeps.of(),
             /* headerOnly */ x -> true,
             (unused1, unused2) -> StringArg.from("-ldl"),
             (unused1, unused2) -> StringArg.from("-lfoobarbaz"),
-            /* linkTargetInput */ (unused1, unused2, unused3, unused4) -> NativeLinkableInput.of(),
+            /* linkTargetInput */ (unused1, unused2, unused3) -> NativeLinkableInput.of(),
             /* supportedPlatformsRegex */ Optional.empty(),
             ImmutableSet.of(frameworkPath),
             ImmutableSet.of(),
@@ -216,7 +225,10 @@ public class CxxLibraryTest {
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
-            cxxPlatform, Linker.LinkableDepType.SHARED, graphBuilder));
+            cxxPlatform,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -244,13 +256,12 @@ public class CxxLibraryTest {
             target,
             projectFilesystem,
             params,
-            graphBuilder.getParallelizer(),
             CxxDeps.of(),
             CxxDeps.of(),
             /* headerOnly */ x -> true,
             (unused1, unused2) -> StringArg.from("-ldl"),
             (unused1, unused2) -> StringArg.from("-lfoobarbaz"),
-            /* linkTargetInput */ (unused1, unused2, unused3, unused4) -> NativeLinkableInput.of(),
+            /* linkTargetInput */ (unused1, unused2, unused3) -> NativeLinkableInput.of(),
             /* supportedPlatformsRegex */ Optional.empty(),
             ImmutableSet.of(frameworkPath),
             ImmutableSet.of(),
@@ -276,7 +287,11 @@ public class CxxLibraryTest {
         NativeLinkableInput.of(linkerArgs, ImmutableSet.of(frameworkPath), ImmutableSet.of());
 
     NativeLinkableInput actualSharedNativeLinkableInput =
-        cxxLibrary.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.SHARED, graphBuilder);
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
 
     assertEquals(expectedSharedNativeLinkableInput, actualSharedNativeLinkableInput);
   }

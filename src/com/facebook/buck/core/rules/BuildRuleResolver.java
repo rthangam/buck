@@ -18,12 +18,11 @@ package com.facebook.buck.core.rules;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 
 /** Provides functions for resolving a BuildTarget to its BuildRule. */
-public interface BuildRuleResolver {
+public interface BuildRuleResolver extends SourcePathRuleFinder {
   /**
    * Returns the {@code BuildRule} associated with the given {@code BuildTarget} if it is already
    * present.
@@ -55,6 +54,4 @@ public interface BuildRuleResolver {
   <T> T getRuleWithType(BuildTarget buildTarget, Class<T> cls);
 
   ImmutableSortedSet<BuildRule> getAllRules(Iterable<BuildTarget> targets);
-
-  RichStream<BuildRule> getAllRulesStream(Iterable<BuildTarget> targets);
 }

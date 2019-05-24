@@ -16,13 +16,13 @@
 
 package com.facebook.buck.file;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TestExecutionContext;
@@ -86,8 +86,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void returnsAFailureIfASingleUriIsPassedAndFails()
-      throws IOException, InterruptedException {
+  public void returnsAFailureIfASingleUriIsPassedAndFails() throws IOException {
     DownloadStep step =
         new DownloadStep(
             filesystem,
@@ -106,7 +105,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void returnsAFailureIfAllUrisFail() throws IOException, InterruptedException {
+  public void returnsAFailureIfAllUrisFail() throws IOException {
     DownloadStep step =
         new DownloadStep(
             filesystem,
@@ -140,8 +139,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void succeedsIfOneDownloadSucceedsAndSha1IsCorrect()
-      throws IOException, InterruptedException {
+  public void succeedsIfOneDownloadSucceedsAndSha1IsCorrect() throws IOException {
     ConditionallyExplodingDownloader downloader =
         new ConditionallyExplodingDownloader(
             uri -> {
@@ -179,8 +177,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void succeedsIfOneDownloadSucceedsAndSha256IsCorrect()
-      throws IOException, InterruptedException {
+  public void succeedsIfOneDownloadSucceedsAndSha256IsCorrect() throws IOException {
     ConditionallyExplodingDownloader downloader =
         new ConditionallyExplodingDownloader(
             uri -> {
@@ -220,7 +217,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void failsIfDownloadSucceedsAndSha1Fails() throws IOException, InterruptedException {
+  public void failsIfDownloadSucceedsAndSha1Fails() throws IOException {
     ConditionallyExplodingDownloader downloader =
         new ConditionallyExplodingDownloader(
             uri -> Optional.of("test_bad_hash".getBytes(Charsets.UTF_8)));
@@ -247,7 +244,7 @@ public class DownloadStepTest {
   }
 
   @Test
-  public void failsIfDownloadSucceedsAndSha256Fails() throws IOException, InterruptedException {
+  public void failsIfDownloadSucceedsAndSha256Fails() throws IOException {
     ConditionallyExplodingDownloader downloader =
         new ConditionallyExplodingDownloader(
             uri -> Optional.of("test_bad_hash".getBytes(Charsets.UTF_8)));

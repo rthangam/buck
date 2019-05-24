@@ -70,8 +70,8 @@ public interface RichStream<T> extends Stream<T> {
         StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, 0), false));
   }
 
-  static <T> RichStream<T> from(Optional<? extends T> optional) {
-    return optional.isPresent() ? of(optional.get()) : empty();
+  static <T> RichStream<T> from(Optional<T> optional) {
+    return optional.map(RichStream::of).orElseGet(RichStream::empty);
   }
 
   static <T> RichStream<T> fromSupplierOfIterable(Supplier<? extends Iterable<T>> supplier) {
@@ -93,7 +93,7 @@ public interface RichStream<T> extends Stream<T> {
    * @return Stream containing the elements of the current stream followed by that of the given
    *     stream.
    */
-  default RichStream<T> concat(Stream<T> other) {
+  default RichStream<T> concat(Stream<? extends T> other) {
     return new RichStreamImpl<>(Stream.concat(this, other));
   }
 

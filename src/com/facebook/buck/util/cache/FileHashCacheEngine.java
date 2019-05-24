@@ -17,7 +17,6 @@
 package com.facebook.buck.util.cache;
 
 import com.facebook.buck.event.AbstractBuckEvent;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -46,7 +45,7 @@ public interface FileHashCacheEngine {
 
   HashCode get(Path path) throws IOException;
 
-  HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException;
+  HashCode getForArchiveMember(Path archiveRelativePath, Path memberPath) throws IOException;
 
   @Nullable
   HashCodeAndFileType getIfPresent(Path path);

@@ -21,7 +21,9 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.SystemToolProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
+import com.facebook.buck.cxx.toolchain.impl.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.toolchain.impl.LegacyToolchainProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Paths;
@@ -39,7 +41,9 @@ public class HaskellPlatformsFactory {
     this.executableFinder = executableFinder;
   }
 
-  private HaskellPlatform getPlatform(String section, CxxPlatform cxxPlatform) {
+  private HaskellPlatform getPlatform(String section, UnresolvedCxxPlatform unresolvedCxxPlatform) {
+    CxxPlatform cxxPlatform = LegacyToolchainProvider.getLegacyTotallyUnsafe(unresolvedCxxPlatform);
+
     return HaskellPlatform.builder()
         .setHaskellVersion(HaskellVersion.of(haskellBuckConfig.getCompilerMajorVersion(section)))
         .setCompiler(getCompiler(section))
@@ -49,6 +53,7 @@ public class HaskellPlatformsFactory {
         .setPackager(getPackager(section))
         .setHaddock(getHaddock(section))
         .setShouldCacheLinks(haskellBuckConfig.getShouldCacheLinks(section))
+        .setShouldUseArgsfile(haskellBuckConfig.getShouldUseArgsfile(section))
         .setShouldUsedOldBinaryOutputLocation(
             haskellBuckConfig.getShouldUsedOldBinaryOutputLocation(section))
         .setPackageNamePrefix(haskellBuckConfig.getPackageNamePrefix(section))
@@ -69,7 +74,8 @@ public class HaskellPlatformsFactory {
   }
 
   /** Maps the cxxPlatforms to corresponding HaskellPlatform. */
-  public FlavorDomain<HaskellPlatform> getPlatforms(FlavorDomain<CxxPlatform> cxxPlatforms) {
+  public FlavorDomain<HaskellPlatform> getPlatforms(
+      FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms) {
     // Use convert (instead of map) so that if we ever have the haskell platform flavor different
     // from the underlying c++ platform's flavor this will continue to work correctly.
     return cxxPlatforms.convert(

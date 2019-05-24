@@ -18,15 +18,15 @@ package com.facebook.buck.core.build.engine.manifest;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourcePathFactoryForTests;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -49,7 +49,7 @@ import org.junit.Test;
 public class ManifestTest {
 
   private static final SourcePathResolver RESOLVER =
-      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+      new TestActionGraphBuilder().getSourcePathResolver();
 
   @Test
   public void toMap() {
@@ -96,22 +96,28 @@ public class ManifestTest {
   public void addEntryFromArchive() throws IOException {
     Manifest manifest = new Manifest(new RuleKey("cc"));
     RuleKey key = new RuleKey("aa");
-    SourcePath input =
+    ArchiveMemberSourcePath input =
         ArchiveMemberSourcePath.of(FakeSourcePath.of("somewhere/a.jar"), Paths.get("Member.class"));
     HashCode hashCode = HashCode.fromInt(20);
     FileHashCache fileHashCache =
         new FakeFileHashCache(
             new HashMap<>(),
-            ImmutableMap.of(RESOLVER.getAbsoluteArchiveMemberPath(input), hashCode),
+            ImmutableMap.of(
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(RESOLVER, input), hashCode),
             new HashMap<>());
     manifest.addEntry(fileHashCache, key, RESOLVER, ImmutableSet.of(input), ImmutableSet.of(input));
+
     assertThat(
         ManifestUtil.toMap(manifest),
         Matchers.equalTo(
             ImmutableMap.of(
                 key,
                 ImmutableMap.of(
-                    RESOLVER.getRelativeArchiveMemberPath(input).toString(), hashCode))));
+                    ArchiveMemberPath.of(
+                            RESOLVER.getRelativePath(input.getArchiveSourcePath()),
+                            input.getMemberPath())
+                        .toString(),
+                    hashCode))));
   }
 
   @Test

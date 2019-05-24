@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.RuleType;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
@@ -115,32 +115,31 @@ public final class CommonRuleKeyHasherTest {
                     "Path<42/42, 42>", h -> h.putPath(Paths.get("42/42"), HashCode.fromInt(42))),
                 pair.apply(
                     "ArchiveMember<:, 0>",
-                    h -> h.putArchiveMemberPath(newArchiveMember("", ""), HashCode.fromInt(0))),
+                    h -> h.putArchiveMemberPath(Paths.get(""), Paths.get(""), HashCode.fromInt(0))),
                 pair.apply(
                     "ArchiveMember<:, 0>",
-                    h -> h.putArchiveMemberPath(newArchiveMember("", ""), HashCode.fromInt(42))),
+                    h ->
+                        h.putArchiveMemberPath(Paths.get(""), Paths.get(""), HashCode.fromInt(42))),
                 pair.apply(
                     "ArchiveMember<42:42, 0>",
-                    h -> h.putArchiveMemberPath(newArchiveMember("42", "42"), HashCode.fromInt(0))),
+                    h ->
+                        h.putArchiveMemberPath(
+                            Paths.get("42"), Paths.get("42"), HashCode.fromInt(0))),
                 pair.apply(
                     "ArchiveMember<42:42, 42>",
                     h ->
-                        h.putArchiveMemberPath(newArchiveMember("42", "42"), HashCode.fromInt(42))),
+                        h.putArchiveMemberPath(
+                            Paths.get("42"), Paths.get("42"), HashCode.fromInt(42))),
                 pair.apply(
                     "ArchiveMember<42/42:42/42, 42>",
                     h ->
                         h.putArchiveMemberPath(
-                            newArchiveMember("42/42", "42/42"), HashCode.fromInt(42))),
-                pair.apply("NonHashingPath<>", h -> h.putNonHashingPath("")),
-                pair.apply("NonHashingPath<42>", h -> h.putNonHashingPath("42")),
+                            Paths.get("42/42"), Paths.get("42/42"), HashCode.fromInt(42))),
+                pair.apply("NonHashingPath<>", h -> h.putNonHashingPath(Paths.get(""))),
+                pair.apply("NonHashingPath<42>", h -> h.putNonHashingPath(Paths.get("42"))),
                 pair.apply(
                     "NonHashingPath<4>, NonHashingPath<2>",
-                    h -> h.putNonHashingPath("4").putNonHashingPath("2")),
-                pair.apply("SourceRoot<>", h -> h.putSourceRoot(new SourceRoot(""))),
-                pair.apply("SourceRoot<42>", h -> h.putSourceRoot(new SourceRoot("42"))),
-                pair.apply(
-                    "SourceRoot<4>, SourceRoot<2>",
-                    h -> h.putSourceRoot(new SourceRoot("4")).putSourceRoot(new SourceRoot("2"))),
+                    h -> h.putNonHashingPath(Paths.get("4")).putNonHashingPath(Paths.get("2"))),
                 pair.apply(String.format("RuleKey<%s>", RULE_KEY_1), h -> h.putRuleKey(RULE_KEY_1)),
                 pair.apply(String.format("RuleKey<%s>", RULE_KEY_2), h -> h.putRuleKey(RULE_KEY_2)),
                 pair.apply("RuleType<>", h -> h.putRuleType(RuleType.of("", RuleType.Kind.BUILD))),
@@ -316,24 +315,18 @@ public final class CommonRuleKeyHasherTest {
     public void testConsistencyForArchiveMemberPath() {
       assertEquals(
           newHasher()
-              .putArchiveMemberPath(newArchiveMember("42/42", "42/42"), HashCode.fromInt(42))
+              .putArchiveMemberPath(Paths.get("42/42"), Paths.get("42/42"), HashCode.fromInt(42))
               .hash(),
           newHasher()
-              .putArchiveMemberPath(newArchiveMember("42/42", "42/42"), HashCode.fromInt(42))
+              .putArchiveMemberPath(Paths.get("42/42"), Paths.get("42/42"), HashCode.fromInt(42))
               .hash());
     }
 
     @Test
     public void testConsistencyForNonHashingPath() {
       assertEquals(
-          newHasher().putNonHashingPath("42").hash(), newHasher().putNonHashingPath("42").hash());
-    }
-
-    @Test
-    public void testConsistencyForSourceRoot() {
-      assertEquals(
-          newHasher().putSourceRoot(new SourceRoot("42")).hash(),
-          newHasher().putSourceRoot(new SourceRoot("42")).hash());
+          newHasher().putNonHashingPath(Paths.get("42")).hash(),
+          newHasher().putNonHashingPath(Paths.get("42")).hash());
     }
 
     @Test

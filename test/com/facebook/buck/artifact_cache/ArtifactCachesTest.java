@@ -20,18 +20,21 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.TaskManagerScope;
+import com.facebook.buck.support.bgtasks.TaskManagerCommandScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.util.concurrent.MoreExecutors;
-import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -46,13 +49,15 @@ public class ArtifactCachesTest {
 
   private static final BuildId BUILD_ID = new BuildId("test");
 
-  private BackgroundTaskManager bgTaskManager;
-  private TaskManagerScope managerScope;
+  private TestBackgroundTaskManager bgTaskManager;
+  private TaskManagerCommandScope managerScope;
+  private UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory;
 
   @Before
   public void setUp() {
-    bgTaskManager = new TestBackgroundTaskManager();
+    bgTaskManager = TestBackgroundTaskManager.of();
     managerScope = bgTaskManager.getNewScope(BUILD_ID);
+    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetViewFactory();
   }
 
   @After
@@ -269,11 +274,13 @@ public class ArtifactCachesTest {
       ArtifactCacheBuckConfig cacheConfig,
       ProjectFilesystem projectFilesystem,
       BuckEventBus buckEventBus,
-      Optional<String> wifiSsid)
-      throws IOException {
+      Optional<String> wifiSsid) {
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(projectFilesystem);
     return new ArtifactCaches(
         cacheConfig,
         buckEventBus,
+        target -> unconfiguredBuildTargetFactory.create(cellPathResolver, target),
+        TargetConfigurationSerializerForTests.create(cellPathResolver),
         projectFilesystem,
         wifiSsid,
         MoreExecutors.newDirectExecutorService(),

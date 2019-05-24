@@ -19,29 +19,32 @@ package com.facebook.buck.distributed;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
+import com.facebook.buck.testutil.CloseableResource;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -69,6 +72,10 @@ public class DistBuildFileHashesIntegrationTest {
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
+  @Rule
+  public CloseableResource<DepsAwareExecutor<? super ComputeResult, ?>> executor =
+      CloseableResource.of(() -> DefaultDepsAwareExecutor.of(4));
+
   @Test
   public void symlinkPathsRecordedInRootCell() throws Exception {
     Assume.assumeTrue(Platform.detect() != Platform.WINDOWS);
@@ -79,7 +86,6 @@ public class DistBuildFileHashesIntegrationTest {
     ProjectFilesystem rootFs =
         TestProjectFilesystems.createProjectFilesystem(
             temporaryFolder.getRoot().toAbsolutePath().resolve("root_cell"));
-
     Path absSymlinkFilePath = rootFs.resolve("../" + SYMLINK_FILE_NAME);
     Path symLinkPath = rootFs.resolve(SYMLINK_FILE_NAME);
     rootFs.createSymLink(symLinkPath, absSymlinkFilePath, false);
@@ -88,12 +94,12 @@ public class DistBuildFileHashesIntegrationTest {
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
 
-    Parser parser = TestParserFactory.create(rootCellConfig);
+    Parser parser = TestParserFactory.create(executor.get(), rootCell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            rootCell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    rootCell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
@@ -116,7 +122,7 @@ public class DistBuildFileHashesIntegrationTest {
     String expectedPath =
         temporaryFolder.getRoot().resolve(SYMLINK_FILE_NAME).toAbsolutePath().toString();
     assertEquals(
-        MorePaths.pathWithUnixSeparators(expectedPath),
+        PathFormatter.pathWithUnixSeparators(expectedPath),
         symLinkEntry.getRootSymLinkTarget().getPath());
     assertEquals(SYMLINK_FILE_NAME, symLinkEntry.getRootSymLink().getPath());
 
@@ -147,12 +153,12 @@ public class DistBuildFileHashesIntegrationTest {
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
 
-    Parser parser = TestParserFactory.create(rootCellConfig);
+    Parser parser = TestParserFactory.create(executor.get(), rootCell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            rootCell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    rootCell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
@@ -168,8 +174,7 @@ public class DistBuildFileHashesIntegrationTest {
     assertNotNull(dump);
     assertEquals(2, dump.getFileHashesSize());
     List<BuildJobStateFileHashes> sortedHashes =
-        dump.getFileHashes()
-            .stream()
+        dump.getFileHashes().stream()
             .sorted(Comparator.comparingInt(BuildJobStateFileHashes::getCellIndex))
             .collect(Collectors.toList());
 
@@ -186,14 +191,16 @@ public class DistBuildFileHashesIntegrationTest {
       throws InterruptedException {
     ActionGraphProvider cache =
         new ActionGraphProviderBuilder()
-            .withMaxEntries(rootCell.getBuckConfig().getMaxActionGraphCacheEntries())
+            .withMaxEntries(
+                rootCell
+                    .getBuckConfig()
+                    .getView(BuildBuckConfig.class)
+                    .getMaxActionGraphCacheEntries())
             .withCellProvider(rootCell.getCellProvider())
             .withCheckActionGraphs()
             .build();
     ActionGraphAndBuilder actionGraphAndBuilder = cache.getActionGraph(targetGraph);
     BuildRuleResolver ruleResolver = actionGraphAndBuilder.getActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DistBuildCellIndexer cellIndexer = new DistBuildCellIndexer(rootCell);
 
     ImmutableList.Builder<ProjectFileHashCache> allCaches = ImmutableList.builder();
@@ -213,8 +220,7 @@ public class DistBuildFileHashesIntegrationTest {
 
     return new DistBuildFileHashes(
         actionGraphAndBuilder.getActionGraph(),
-        sourcePathResolver,
-        ruleFinder,
+        ruleResolver,
         stackedCache,
         cellIndexer,
         MoreExecutors.newDirectExecutorService(),

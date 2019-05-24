@@ -56,24 +56,29 @@ public class CxxPrepareForLinkStep {
 
     boolean hasLinkArgsToSupportFileList = linkerArgsToSupportFileList.iterator().hasNext();
 
-    LOG.debug(
-        "Link command (pwd=%s): %s %s",
-        currentCellPath.toString(),
-        String.join("", linker.getCommandPrefix(resolver)),
-        String.join(" ", CxxWriteArgsToFileStep.stringify(allArgs, currentCellPath, resolver)));
+    if (LOG.isVerboseEnabled()) {
+      LOG.verbose(
+          "Link command (pwd=%s): %s %s",
+          currentCellPath.toString(),
+          String.join("", linker.getCommandPrefix(resolver)),
+          String.join(
+              " ",
+              CxxWriteArgsToFileStep.stringify(
+                  allArgs, currentCellPath, resolver, linker.getUseUnixPathSeparator())));
+    }
 
     CxxWriteArgsToFileStep createArgFileStep =
         CxxWriteArgsToFileStep.create(
             argFilePath,
             hasLinkArgsToSupportFileList
-                ? allArgs
-                    .stream()
+                ? allArgs.stream()
                     .filter(input -> !(input instanceof FileListableLinkerInputArg))
                     .collect(ImmutableList.toImmutableList())
                 : allArgs,
             Optional.of(Escaper.SHELL_ESCAPER),
             currentCellPath,
-            resolver);
+            resolver,
+            linker.getUseUnixPathSeparator());
 
     if (!hasLinkArgsToSupportFileList) {
       LOG.verbose("linkerArgsToSupportFileList is empty, filelist feature is not supported");
@@ -83,13 +88,13 @@ public class CxxPrepareForLinkStep {
     CxxWriteArgsToFileStep createFileListStep =
         CxxWriteArgsToFileStep.create(
             fileListPath,
-            allArgs
-                .stream()
+            allArgs.stream()
                 .filter(input -> input instanceof FileListableLinkerInputArg)
                 .collect(ImmutableList.toImmutableList()),
             Optional.empty(),
             currentCellPath,
-            resolver);
+            resolver,
+            linker.getUseUnixPathSeparator());
 
     return ImmutableList.of(createArgFileStep, createFileListStep);
   }

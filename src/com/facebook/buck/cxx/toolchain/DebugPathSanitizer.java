@@ -15,7 +15,9 @@
  */
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.modern.CustomFieldSerialization;
 import com.facebook.buck.rules.modern.ValueCreator;
 import com.facebook.buck.rules.modern.ValueVisitor;
@@ -24,7 +26,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -34,6 +35,18 @@ import java.util.stream.StreamSupport;
 
 /** Encapsulates all the logic to sanitize debug paths in native code. */
 public abstract class DebugPathSanitizer implements AddsToRuleKey {
+
+  @AddToRuleKey final boolean useUnixPathSeparator;
+
+  /** @param useUnixPathSeparator use unix path separator in paths. */
+  public DebugPathSanitizer(boolean useUnixPathSeparator) {
+    this.useUnixPathSeparator = useUnixPathSeparator;
+  }
+
+  public DebugPathSanitizer() {
+    this(false);
+  }
+
   /** Custom serialization for the other field. */
   static class OtherSerialization
       implements CustomFieldSerialization<ImmutableBiMap<Path, String>> {
@@ -81,9 +94,6 @@ public abstract class DebugPathSanitizer implements AddsToRuleKey {
   public abstract ImmutableMap<String, String> getCompilationEnvironment(
       Path workingDir, boolean shouldSanitize);
 
-  public abstract ImmutableMap<String, String> getCompilationEnvironment(
-      Path workingDir, boolean shouldSanitize, boolean useUnixPathSeparator);
-
   @SuppressWarnings("unused")
   public ImmutableList<String> getCompilationFlags(
       Compiler compiler, Path workingDir, ImmutableMap<Path, Path> prefixMap) {
@@ -92,12 +102,7 @@ public abstract class DebugPathSanitizer implements AddsToRuleKey {
 
   protected abstract Iterable<Map.Entry<Path, String>> getAllPaths(Optional<Path> workingDir);
 
-  protected abstract Iterable<Map.Entry<Path, String>> getAllPaths(
-      Optional<Path> workingDir, boolean useUnixPathSeparator);
-
   public abstract String getCompilationDirectory();
-
-  public abstract String getCompilationDirectory(boolean useUnixPathSeparator);
 
   public Function<String, String> sanitize(Optional<Path> workingDir) {
     return input -> DebugPathSanitizer.this.sanitize(workingDir, input);
@@ -117,7 +122,10 @@ public abstract class DebugPathSanitizer implements AddsToRuleKey {
   public String sanitize(Optional<Path> workingDir, String contents) {
     for (Map.Entry<Path, String> entry : getAllPaths(workingDir)) {
       String replacement = entry.getValue();
-      String pathToReplace = entry.getKey().toString();
+      String pathToReplace =
+          useUnixPathSeparator
+              ? PathFormatter.pathWithUnixSeparators(entry.getKey())
+              : entry.getKey().toString();
       if (contents.contains(pathToReplace)) {
         // String.replace creates a number of objects, and creates a fair
         // amount of object churn at this level, so we avoid doing it if
@@ -130,5 +138,5 @@ public abstract class DebugPathSanitizer implements AddsToRuleKey {
 
   // Construct the replacer, giving the expanded current directory and the desired directory.
   // We use ASCII, since all the relevant debug standards we care about (e.g. DWARF) use it.
-  public abstract void restoreCompilationDirectory(Path path, Path workingDir) throws IOException;
+  public abstract void restoreCompilationDirectory(Path path, Path workingDir);
 }

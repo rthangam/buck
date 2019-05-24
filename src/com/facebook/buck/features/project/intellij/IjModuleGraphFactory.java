@@ -66,9 +66,7 @@ public final class IjModuleGraphFactory {
       ImmutableSet<String> ignoredTargetLabels) {
 
     Stream<TargetNode<?>> nodes =
-        targetGraph
-            .getNodes()
-            .stream()
+        targetGraph.getNodes().stream()
             .filter(
                 input ->
                     SupportedTargetTypeRegistry.isTargetTypeSupported(
@@ -78,11 +76,11 @@ public final class IjModuleGraphFactory {
                   CommonDescriptionArg arg = (CommonDescriptionArg) targetNode.getConstructorArg();
                   return !arg.labelsContainsAnyOf(ignoredTargetLabels);
                 })
-            // IntelliJ doesn't support referring to source files which aren't below the root of the
-            // project. Filter out those cases proactively, so that we don't try to resolve files
-            // relative to the wrong ProjectFilesystem.
-            // Maybe one day someone will fix this.
-            .filter(targetNode -> isInRootCell(projectFilesystem, targetNode));
+            // Experimental support for generating modules outside the project root
+            .filter(
+                targetNode ->
+                    projectConfig.isMultiCellModuleSupportEnabled()
+                        || isInRootCell(projectFilesystem, targetNode));
 
     ImmutableListMultimap<Path, TargetNode<?>> baseTargetPathMultimap =
         (projectConfig.getProjectRoot().isEmpty()
@@ -92,7 +90,11 @@ public final class IjModuleGraphFactory {
                         shouldConvertToIjModule(projectConfig.getProjectRoot(), targetNode)))
             .collect(
                 ImmutableListMultimap.toImmutableListMultimap(
-                    targetNode -> targetNode.getBuildTarget().getBasePath(),
+                    targetNode ->
+                        projectFilesystem.relativize(
+                            targetNode
+                                .getFilesystem()
+                                .resolve(targetNode.getBuildTarget().getBasePath())),
                     targetNode -> targetNode));
 
     AggregationTree aggregationTree =
@@ -132,10 +134,7 @@ public final class IjModuleGraphFactory {
       AggregationModuleFactory aggregationModuleFactory,
       ImmutableListMultimap<Path, TargetNode<?>> targetNodesByBasePath) {
     Map<Path, AggregationModule> pathToAggregationModuleMap =
-        targetNodesByBasePath
-            .asMap()
-            .entrySet()
-            .stream()
+        targetNodesByBasePath.asMap().entrySet().stream()
             .collect(
                 ImmutableMap.toImmutableMap(
                     Map.Entry::getKey,
@@ -154,9 +153,7 @@ public final class IjModuleGraphFactory {
 
     AggregationTree aggregationTree = new AggregationTree(projectConfig, rootAggregationModule);
 
-    pathToAggregationModuleMap
-        .entrySet()
-        .stream()
+    pathToAggregationModuleMap.entrySet().stream()
         .filter(e -> !rootPath.equals(e.getKey()))
         .forEach(e -> aggregationTree.addModule(e.getKey(), e.getValue()));
 
@@ -291,8 +288,7 @@ public final class IjModuleGraphFactory {
                     rulesToModules,
                     module,
                     Stream.concat(
-                        transitiveDepsClosureResolver
-                            .getTransitiveDepsClosure(depBuildTarget)
+                        transitiveDepsClosureResolver.getTransitiveDepsClosure(depBuildTarget)
                             .stream(),
                         Stream.of(depBuildTarget)));
           }
@@ -308,9 +304,7 @@ public final class IjModuleGraphFactory {
         }
       }
 
-      moduleDeps
-          .keySet()
-          .stream()
+      moduleDeps.keySet().stream()
           .filter(dep -> dep instanceof IjLibrary)
           .map(library -> (IjLibrary) library)
           .forEach(referencedLibraries::add);

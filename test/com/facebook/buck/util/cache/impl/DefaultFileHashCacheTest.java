@@ -22,7 +22,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -64,8 +63,7 @@ public class DefaultFileHashCacheTest {
 
   @Parameterized.Parameters(name = "{0}")
   public static Collection<Object[]> data() {
-    return EnumSet.allOf(FileHashCacheMode.class)
-        .stream()
+    return EnumSet.allOf(FileHashCacheMode.class).stream()
         .map(v -> new Object[] {v})
         .collect(ImmutableList.toImmutableList());
   }
@@ -202,7 +200,7 @@ public class DefaultFileHashCacheTest {
           new ByteArrayInputStream(memberContents.getBytes(StandardCharsets.UTF_8)));
     }
 
-    HashCode actual = cache.get(ArchiveMemberPath.of(abiJarPath, memberPath));
+    HashCode actual = cache.getForArchiveMember(abiJarPath, memberPath);
     HashCode expected = Hashing.murmur3_128().hashString(memberContents, StandardCharsets.UTF_8);
 
     assertEquals(expected, actual);
@@ -232,7 +230,7 @@ public class DefaultFileHashCacheTest {
           new ByteArrayInputStream(memberContents.getBytes(StandardCharsets.UTF_8)));
     }
 
-    cache.get(ArchiveMemberPath.of(abiJarPath, memberPath));
+    cache.getForArchiveMember(abiJarPath, memberPath);
   }
 
   @Test(expected = UnsupportedOperationException.class)
@@ -250,7 +248,7 @@ public class DefaultFileHashCacheTest {
       jar.closeEntry();
     }
 
-    cache.get(ArchiveMemberPath.of(abiJarPath, memberPath));
+    cache.getForArchiveMember(abiJarPath, memberPath);
   }
 
   @Test(expected = NoSuchFileException.class)
@@ -272,7 +270,7 @@ public class DefaultFileHashCacheTest {
           new ByteArrayInputStream("Contents".getBytes(StandardCharsets.UTF_8)));
     }
 
-    cache.get(ArchiveMemberPath.of(abiJarPath, memberPath));
+    cache.getForArchiveMember(abiJarPath, memberPath);
   }
 
   @Test

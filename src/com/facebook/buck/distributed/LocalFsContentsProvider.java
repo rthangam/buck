@@ -44,8 +44,7 @@ public class LocalFsContentsProvider implements FileContentsProvider {
   private final DirArtifactCache dirCache;
 
   public LocalFsContentsProvider(
-      ProjectFilesystemFactory projectFilesystemFactory, Path cacheDirAbsPath)
-      throws InterruptedException, IOException {
+      ProjectFilesystemFactory projectFilesystemFactory, Path cacheDirAbsPath) throws IOException {
     Preconditions.checkArgument(
         Files.isDirectory(cacheDirAbsPath),
         "The cache directory must exist. cacheDirAbsPath=[%s]",
@@ -66,7 +65,8 @@ public class LocalFsContentsProvider implements FileContentsProvider {
     RuleKey key = new RuleKey(entry.getSha1());
     return Futures.transform(
         dirCache.fetchAsync(null, key, LazyPath.ofInstance(targetAbsPath)),
-        (CacheResult result) -> result.getType() == CacheResultType.HIT);
+        (CacheResult result) -> result.getType() == CacheResultType.HIT,
+        MoreExecutors.directExecutor());
   }
 
   public void writeFileAndGetInputStream(BuildJobStateFileHashEntry entry, Path absPath)

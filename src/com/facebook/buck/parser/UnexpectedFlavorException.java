@@ -16,15 +16,13 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.util.PatternAndMessage;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -35,7 +33,7 @@ public class UnexpectedFlavorException extends HumanReadableException {
           PatternAndMessage.of(
               Pattern.compile("android-*"),
               "Please make sure you have the Android SDK/NDK installed and set up. See "
-                  + "https://buckbuild.com/setup/install.html#locate-android-sdk"),
+                  + "https://buck.build/setup/install.html#locate-android-sdk"),
           PatternAndMessage.of(
               Pattern.compile("macosx*"),
               "Please make sure you have the Mac OSX SDK installed and set up."),
@@ -63,31 +61,17 @@ public class UnexpectedFlavorException extends HumanReadableException {
   }
 
   public static UnexpectedFlavorException createWithSuggestions(
-      Flavored flavored, Cell cell, BuildTarget target) {
+      Flavored flavored, UnconfiguredBuildTargetView target) {
     ImmutableSet<Flavor> invalidFlavors = getInvalidFlavors(flavored, target);
     ImmutableSet<Flavor> validFlavors = getValidFlavors(flavored, target);
     // Get the specific message
     String exceptionMessage = createDefaultMessage(target, invalidFlavors, validFlavors);
-    // Get some suggestions on how to solve it.
-    Optional<ImmutableSet<PatternAndMessage>> configMessagesForFlavors =
-        cell.getBuckConfig().getUnexpectedFlavorsMessages();
 
     ImmutableList.Builder<String> suggestionsBuilder = ImmutableList.builder();
     for (Flavor flavor : invalidFlavors) {
-      boolean foundInConfig = false;
-      if (configMessagesForFlavors.isPresent()) {
-        for (PatternAndMessage flavorPattern : configMessagesForFlavors.get()) {
-          if (flavorPattern.getPattern().matcher(flavor.getName()).find()) {
-            foundInConfig = true;
-            suggestionsBuilder.add("- " + flavor.getName() + ": " + flavorPattern.getMessage());
-          }
-        }
-      }
-      if (!foundInConfig) {
-        for (PatternAndMessage flavorPattern : suggestedMessagesForFlavors) {
-          if (flavorPattern.getPattern().matcher(flavor.getName()).find()) {
-            suggestionsBuilder.add("- " + flavor.getName() + ": " + flavorPattern.getMessage());
-          }
+      for (PatternAndMessage flavorPattern : suggestedMessagesForFlavors) {
+        if (flavorPattern.getPattern().matcher(flavor.getName()).find()) {
+          suggestionsBuilder.add("- " + flavor.getName() + ": " + flavorPattern.getMessage());
         }
       }
     }
@@ -104,33 +88,31 @@ public class UnexpectedFlavorException extends HumanReadableException {
     return new UnexpectedFlavorException(exceptionMessage);
   }
 
-  private static ImmutableSet<Flavor> getInvalidFlavors(Flavored flavored, BuildTarget target) {
-    return target
-        .getFlavors()
-        .stream()
+  private static ImmutableSet<Flavor> getInvalidFlavors(
+      Flavored flavored, UnconfiguredBuildTargetView target) {
+    return target.getFlavors().stream()
         .filter(flavor -> !flavored.hasFlavors(ImmutableSet.of(flavor)))
         .collect(ImmutableSet.toImmutableSet());
   }
 
-  private static ImmutableSet<Flavor> getValidFlavors(Flavored flavored, BuildTarget target) {
-    return target
-        .getFlavors()
-        .stream()
+  private static ImmutableSet<Flavor> getValidFlavors(
+      Flavored flavored, UnconfiguredBuildTargetView target) {
+    return target.getFlavors().stream()
         .filter(flavor -> flavored.hasFlavors(ImmutableSet.of(flavor)))
         .collect(ImmutableSet.toImmutableSet());
   }
 
   private static String createDefaultMessage(
-      BuildTarget target, ImmutableSet<Flavor> invalidFlavors, ImmutableSet<Flavor> validFlavors) {
+      UnconfiguredBuildTargetView target,
+      ImmutableSet<Flavor> invalidFlavors,
+      ImmutableSet<Flavor> validFlavors) {
     String invalidFlavorsStr =
-        invalidFlavors
-            .stream()
+        invalidFlavors.stream()
             .map(Flavor::toString)
             .collect(Collectors.joining(System.lineSeparator()));
 
     String validFlavorsStr =
-        validFlavors
-            .stream()
+        validFlavors.stream()
             .map(Flavor::getName)
             .collect(Collectors.joining(System.lineSeparator()));
 

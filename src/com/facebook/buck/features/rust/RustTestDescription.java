@@ -31,7 +31,6 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.tool.BinaryWrapperRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -91,7 +90,8 @@ public class RustTestDescription
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     RustPlatform rustPlatform =
-        RustCompileUtils.getRustPlatform(getRustToolchain(), buildTarget, args);
+        RustCompileUtils.getRustPlatform(getRustToolchain(), buildTarget, args)
+            .resolve(context.getActionGraphBuilder(), buildTarget.getTargetConfiguration());
 
     BinaryWrapperRule testExeBuild =
         (BinaryWrapperRule)
@@ -106,6 +106,7 @@ public class RustTestDescription
                         rustBuckConfig,
                         rustPlatform,
                         args.getCrate(),
+                        args.getEdition(),
                         args.getFeatures(),
                         Stream.of(
                                 args.isFramework() ? Stream.of("--test") : Stream.<String>empty(),
@@ -122,12 +123,10 @@ public class RustTestDescription
                         type.getCrateType(),
                         allDeps.get(graphBuilder, rustPlatform.getCxxPlatform())));
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-
     Tool testExe = testExeBuild.getExecutableCommand();
 
     BuildRuleParams testParams =
-        params.copyAppendingExtraDeps(BuildableSupport.getDepsCollection(testExe, ruleFinder));
+        params.copyAppendingExtraDeps(BuildableSupport.getDepsCollection(testExe, graphBuilder));
 
     return new RustTest(
         buildTarget,
@@ -164,6 +163,8 @@ public class RustTestDescription
   interface AbstractRustTestDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasDefaultPlatform {
     ImmutableSet<String> getContacts();
+
+    Optional<String> getEdition();
 
     @Value.NaturalOrder
     ImmutableSortedSet<String> getFeatures();

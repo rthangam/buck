@@ -20,7 +20,9 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
+import com.facebook.buck.doctor.config.ImmutableSourceControlInfo;
 import com.facebook.buck.doctor.config.SourceControlInfo;
+import com.facebook.buck.doctor.config.ImmutableUserLocalConfiguration;
 import com.facebook.buck.doctor.config.UserLocalConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigPaths;
@@ -91,7 +93,7 @@ public abstract class AbstractReport {
     }
     FullVersionControlStats versionControlStats = versionControlStatsOptional.get();
     return Optional.of(
-        SourceControlInfo.of(
+        new ImmutableSourceControlInfo(
             versionControlStats.getCurrentRevisionId(),
             versionControlStats.getBaseBookmarks(),
             Optional.of(versionControlStats.getBranchedFromMasterRevisionId()),
@@ -134,7 +136,7 @@ public abstract class AbstractReport {
     Optional<FileChangesIgnoredReport> fileChangesIgnoredReport = getFileChangesIgnoredReport();
 
     UserLocalConfiguration userLocalConfiguration =
-        UserLocalConfiguration.of(
+        new ImmutableUserLocalConfiguration(
             isNoBuckCheckPresent(), getLocalConfigs(), getConfigOverrides(selectedBuilds));
 
     ImmutableSet<Path> includedPaths =
@@ -165,7 +167,7 @@ public abstract class AbstractReport {
             .setHighlightedBuildIds(
                 RichStream.from(selectedBuilds)
                     .map(BuildLogEntry::getBuildId)
-                    .flatMap(Optionals::toStream)
+                    .flatMap(RichStream::from)
                     .toOnceIterable())
             .setBuildEnvironmentDescription(buildEnvironmentDescription)
             .setSourceControlInfo(sourceControlInfo)
@@ -219,15 +221,12 @@ public abstract class AbstractReport {
     ImmutableList<Path> overrideFiles;
     try {
       overrideFiles =
-          Configs.getDefaultConfigurationFiles(rootPath)
-              .stream()
+          Configs.getDefaultConfigurationFiles(rootPath).stream()
               .filter(f -> !f.equals(Configs.getMainConfigurationFile(rootPath)))
               .filter(
                   config -> {
                     try {
-                      return Configs.parseConfigFile(rootPath.resolve(config))
-                              .values()
-                              .stream()
+                      return Configs.parseConfigFile(rootPath.resolve(config)).values().stream()
                               .mapToLong(Map::size)
                               .sum()
                           != 0;

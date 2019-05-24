@@ -30,6 +30,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
+import com.facebook.buck.apple.AppleBundleDescriptionArg;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryBuilder;
@@ -43,6 +44,7 @@ import com.facebook.buck.apple.xcode.XCScheme.BuildActionEntry;
 import com.facebook.buck.apple.xcode.XCScheme.BuildActionEntry.BuildFor;
 import com.facebook.buck.apple.xcode.XCScheme.LaunchAction.WatchInterface;
 import com.facebook.buck.apple.xcode.XCScheme.SchemePrePostAction;
+import com.facebook.buck.apple.xcode.xcodeproj.ProductTypes;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
@@ -58,9 +60,10 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.impl.DefaultCxxPlatforms;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.features.halide.HalideBuckConfig;
@@ -470,7 +473,11 @@ public class WorkspaceAndProjectGeneratorTest {
         mainSchemeTestAction.getTestables(), hasItem(withName("bin-xctest")));
 
     // validate project specific (foo) scheme values
-    Optional<XCScheme> fooScheme = generator.getSchemeGenerators().get("foo").getOutputScheme();
+    SchemeGenerator fooSchemeGenerator = generator.getSchemeGenerators().get("foo");
+
+    assertThat(fooSchemeGenerator.getOutputDirectory(), is(Paths.get("foo/foo.xcodeproj")));
+
+    Optional<XCScheme> fooScheme = fooSchemeGenerator.getOutputScheme();
 
     assertThat(fooScheme.isPresent(), is(true));
 
@@ -496,7 +503,11 @@ public class WorkspaceAndProjectGeneratorTest {
         fooSchemeTestAction.getTestables(), hasItem(withName("bin-xctest")));
 
     // validate project specific (bar) scheme values
-    Optional<XCScheme> barScheme = generator.getSchemeGenerators().get("bar").getOutputScheme();
+    SchemeGenerator barSchemeGenerator = generator.getSchemeGenerators().get("bar");
+
+    assertThat(barSchemeGenerator.getOutputDirectory(), is(Paths.get("bar/bar.xcodeproj")));
+
+    Optional<XCScheme> barScheme = barSchemeGenerator.getOutputScheme();
 
     assertThat(barScheme.isPresent(), is(true));
 
@@ -922,6 +933,116 @@ public class WorkspaceAndProjectGeneratorTest {
     assertThat(
         mainSchemeBuildAction.getBuildActionEntries().get(2),
         withNameAndBuildingFor("BazLib", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
+  }
+
+  @Test
+  public void targetsForWorkspaceWithImplicitExtensionTargets()
+      throws IOException, InterruptedException {
+    BuildTarget barShareExtensionBinaryTarget =
+        BuildTargetFactory.newInstance(rootCell.getRoot(), "//foo", "BarShareExtensionBinary");
+    TargetNode<?> barShareExtensionBinary =
+        AppleBinaryBuilder.createBuilder(barShareExtensionBinaryTarget).build();
+
+    BuildTarget barShareExtensionTarget =
+        BuildTargetFactory.newInstance(
+            rootCell.getRoot(), "//foo", "BarShareExtension", DefaultCxxPlatforms.FLAVOR);
+    TargetNode<AppleBundleDescriptionArg> barShareExtension =
+        AppleBundleBuilder.createBuilder(barShareExtensionTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APPEX))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setBinary(barShareExtensionBinaryTarget)
+            .setXcodeProductType(Optional.of(ProductTypes.APP_EXTENSION.getIdentifier()))
+            .build();
+
+    BuildTarget barAppBinaryTarget =
+        BuildTargetFactory.newInstance(rootCell.getRoot(), "//foo", "BarAppBinary");
+    TargetNode<?> barAppBinary = AppleBinaryBuilder.createBuilder(barAppBinaryTarget).build();
+
+    BuildTarget barAppTarget =
+        BuildTargetFactory.newInstance(rootCell.getRoot(), "//foo", "BarApp");
+    TargetNode<AppleBundleDescriptionArg> barApp =
+        AppleBundleBuilder.createBuilder(barAppTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setBinary(barAppBinaryTarget)
+            .setDeps(ImmutableSortedSet.of(barShareExtensionTarget))
+            .build();
+
+    XcodeWorkspaceConfigDescriptionArg arg =
+        XcodeWorkspaceConfigDescriptionArg.builder()
+            .setName("workspace")
+            .setSrcTarget(barAppTarget)
+            .build();
+
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            barShareExtensionBinary, barShareExtension, barAppBinary, barApp);
+
+    WorkspaceAndProjectGenerator generator =
+        new WorkspaceAndProjectGenerator(
+            xcodeDescriptions,
+            rootCell,
+            targetGraph,
+            arg,
+            barAppTarget,
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
+            false /* combinedProject */,
+            FocusedModuleTargetMatcher.noFocus(),
+            true /* parallelizeBuild */,
+            DEFAULT_PLATFORM,
+            ImmutableSet.of(),
+            "BUCK",
+            getActionGraphBuilderForNodeFunction(targetGraph),
+            getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
+            halideBuckConfig,
+            cxxBuckConfig,
+            appleConfig,
+            swiftBuckConfig,
+            Optional.empty());
+    Map<Path, ProjectGenerator> projectGenerators = new HashMap<>();
+    generator.generateWorkspaceAndDependentProjects(
+        projectGenerators, MoreExecutors.newDirectExecutorService());
+
+    assertThat(
+        generator.getSchemeGenerators().get("BarApp").getOutputScheme().isPresent(), is(true));
+    assertThat(
+        generator
+            .getSchemeGenerators()
+            .get("BarApp+BarShareExtension")
+            .getOutputScheme()
+            .isPresent(),
+        is(true));
+
+    // Validate app scheme
+    XCScheme appScheme = generator.getSchemeGenerators().get("BarApp").getOutputScheme().get();
+    assertThat(appScheme.getWasCreatedForExtension(), is(false));
+    XCScheme.BuildAction appSchemeBuildAction = appScheme.getBuildAction().get();
+    assertThat(appSchemeBuildAction.getBuildActionEntries(), hasSize(2));
+    assertThat(
+        appSchemeBuildAction.getBuildActionEntries().get(0),
+        withNameAndBuildingFor(
+            "BarShareExtension", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
+    assertThat(
+        appSchemeBuildAction.getBuildActionEntries().get(1),
+        withNameAndBuildingFor("BarApp", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
+
+    // Validate extension scheme
+    XCScheme extensionScheme =
+        generator.getSchemeGenerators().get("BarApp+BarShareExtension").getOutputScheme().get();
+    assertThat(extensionScheme.getWasCreatedForExtension(), is(true));
+    XCScheme.BuildAction extensionSchemeBuildAction = extensionScheme.getBuildAction().get();
+    assertThat(extensionSchemeBuildAction.getBuildActionEntries(), hasSize(2));
+    assertThat(
+        extensionSchemeBuildAction.getBuildActionEntries().get(0),
+        withNameAndBuildingFor("BarApp", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
+    assertThat(
+        extensionSchemeBuildAction.getBuildActionEntries().get(1),
+        withNameAndBuildingFor(
+            "BarShareExtension", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
   }
 
   @Test

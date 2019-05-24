@@ -20,19 +20,19 @@ import com.facebook.buck.cli.BuildCommand;
 import com.facebook.buck.cli.CommandRunnerParams;
 import com.facebook.buck.cli.ProjectGeneratorParameters;
 import com.facebook.buck.cli.ProjectTestsMode;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
@@ -40,10 +40,11 @@ import com.facebook.buck.features.go.CgoLibraryDescription.AbstractCgoLibraryDes
 import com.facebook.buck.features.go.GoLibraryDescription.AbstractGoLibraryDescriptionArg;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.BuildFileSpec;
+import com.facebook.buck.parser.ImmutableTargetNodePredicateSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.SpeculativeParsing;
-import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.Console;
@@ -76,13 +77,13 @@ public class GoProjectCommandHelper {
   private final CommandRunnerParams params;
   private final BuckEventBus buckEventBus;
   private final Console console;
-  private final ListeningExecutorService executor;
   private final Parser parser;
   private final GoBuckConfig goBuckConfig;
   private final BuckConfig buckConfig;
   private final Cell cell;
-  private final boolean enableParserProfiling;
+  private final TargetConfiguration targetConfiguration;
   private final Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser;
+  private final ParsingContext parsingContext;
 
   private final ProjectGeneratorParameters projectGeneratorParameters;
 
@@ -91,18 +92,25 @@ public class GoProjectCommandHelper {
       ListeningExecutorService executor,
       boolean enableParserProfiling,
       Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser,
-      ProjectGeneratorParameters projectGeneratorParameters) {
+      ProjectGeneratorParameters projectGeneratorParameters,
+      TargetConfiguration targetConfiguration) {
     this.params = params;
     this.buckEventBus = params.getBuckEventBus();
     this.console = projectGeneratorParameters.getConsole();
-    this.executor = executor;
     this.parser = projectGeneratorParameters.getParser();
     this.goBuckConfig = new GoBuckConfig(params.getBuckConfig());
     this.buckConfig = params.getBuckConfig();
     this.cell = params.getCell();
-    this.enableParserProfiling = enableParserProfiling;
     this.argsParser = argsParser;
     this.projectGeneratorParameters = projectGeneratorParameters;
+    this.targetConfiguration = targetConfiguration;
+    this.parsingContext =
+        ParsingContext.builder(cell, executor)
+            .setProfilingEnabled(enableParserProfiling)
+            .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+            .setApplyDefaultFlavorsMode(
+                buckConfig.getView(ParserConfig.class).getDefaultFlavorsMode())
+            .build();
   }
 
   public ExitCode parseTargetsAndRunProjectGenerator(List<String> arguments) throws Exception {
@@ -115,18 +123,12 @@ public class GoProjectCommandHelper {
     TargetGraph projectGraph;
 
     try {
-      ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
       passedInTargetsSet =
           ImmutableSet.copyOf(
               Iterables.concat(
                   parser.resolveTargetSpecs(
-                      cell,
-                      enableParserProfiling,
-                      executor,
-                      argsParser.apply(targets),
-                      SpeculativeParsing.ENABLED,
-                      parserConfig.getDefaultFlavorsMode())));
-      projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
+                      parsingContext, argsParser.apply(targets), targetConfiguration)));
+      projectGraph = getProjectGraphForIde(passedInTargetsSet);
     } catch (BuildFileParseException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
@@ -138,9 +140,7 @@ public class GoProjectCommandHelper {
     ImmutableSet<BuildTarget> graphRoots;
     if (passedInTargetsSet.isEmpty()) {
       graphRoots =
-          projectGraph
-              .getNodes()
-              .stream()
+          projectGraph.getNodes().stream()
               .map(TargetNode::getBuildTarget)
               .collect(ImmutableSet.toImmutableSet());
     } else {
@@ -150,7 +150,7 @@ public class GoProjectCommandHelper {
     TargetGraphAndTargets targetGraphAndTargets;
     try {
       targetGraphAndTargets =
-          createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty(), executor);
+          createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty());
     } catch (BuildFileParseException | NoSuchTargetException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
@@ -173,22 +173,20 @@ public class GoProjectCommandHelper {
     return params.getActionGraphProvider().getActionGraph(targetGraph);
   }
 
-  private TargetGraph getProjectGraphForIde(
-      ListeningExecutorService executor, ImmutableSet<BuildTarget> passedInTargets)
+  private TargetGraph getProjectGraphForIde(ImmutableSet<BuildTarget> passedInTargets)
       throws InterruptedException, BuildFileParseException, IOException {
 
     if (passedInTargets.isEmpty()) {
       return parser
-          .buildTargetGraphForTargetNodeSpecs(
-              cell,
-              enableParserProfiling,
-              executor,
+          .buildTargetGraphWithConfigurationTargets(
+              parsingContext,
               ImmutableList.of(
-                  TargetNodePredicateSpec.of(
-                      BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))))
+                  ImmutableTargetNodePredicateSpec.of(
+                      BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
+              targetConfiguration)
           .getTargetGraph();
     }
-    return parser.buildTargetGraph(cell, enableParserProfiling, executor, passedInTargets);
+    return parser.buildTargetGraph(parsingContext, passedInTargets);
   }
 
   /**
@@ -206,9 +204,7 @@ public class GoProjectCommandHelper {
     // Run code generation targets
     ExitCode exitCode =
         runBuild(
-            generatedPackages
-                .keySet()
-                .stream()
+            generatedPackages.keySet().stream()
                 .map(BuildTargetSourcePath::getTarget)
                 .collect(ImmutableSet.toImmutableSet()));
     if (exitCode != ExitCode.SUCCESS) {
@@ -242,8 +238,6 @@ public class GoProjectCommandHelper {
     }
     ActionGraphAndBuilder result =
         Objects.requireNonNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
-    DefaultSourcePathResolver sourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(result.getActionGraphBuilder()));
 
     // cleanup files from previous runs
     for (BuildTargetSourcePath sourcePath : generatedPackages.keySet()) {
@@ -263,7 +257,8 @@ public class GoProjectCommandHelper {
     // copy files generated in current run
     for (BuildTargetSourcePath sourcePath : generatedPackages.keySet()) {
       Path desiredPath = vendorPath.resolve(generatedPackages.get(sourcePath));
-      Path generatedSrc = sourcePathResolver.getAbsolutePath(sourcePath);
+      Path generatedSrc =
+          result.getActionGraphBuilder().getSourcePathResolver().getAbsolutePath(sourcePath);
 
       if (projectFilesystem.isDirectory(generatedSrc)) {
         projectFilesystem.copyFolder(generatedSrc, desiredPath);
@@ -304,10 +299,11 @@ public class GoProjectCommandHelper {
         generatedPackages.putAll(getSrcsMap(getSrcAndHeaderTargets(cgoArgs), pkgName));
         generatedPackages.putAll(getSrcsMap(filterBuildTargets(cgoArgs.getGoSrcs()), pkgName));
         List<CxxConstructorArg> cxxLibs =
-            cgoArgs
-                .getCxxDeps()
-                .getDeps()
-                .stream()
+            cgoArgs.getCxxDeps().getDeps().stream()
+                .filter(
+                    target ->
+                        targetGraphAndTargets.getTargetGraph().get(target).getConstructorArg()
+                            instanceof CxxConstructorArg)
                 .map(
                     target ->
                         (CxxConstructorArg)
@@ -333,9 +329,7 @@ public class GoProjectCommandHelper {
     List<BuildTargetSourcePath> targets = new ArrayList<>();
     targets.addAll(
         filterBuildTargets(
-                constructorArg
-                    .getSrcs()
-                    .stream()
+                constructorArg.getSrcs().stream()
                     .map(srcWithFlags -> srcWithFlags.getSourcePath())
                     .collect(Collectors.toSet()))
             .collect(Collectors.toList()));
@@ -349,8 +343,7 @@ public class GoProjectCommandHelper {
 
   @Nonnull
   private Stream<BuildTargetSourcePath> filterBuildTargets(Set<SourcePath> paths) {
-    return paths
-        .stream()
+    return paths.stream()
         .filter(srcPath -> srcPath instanceof BuildTargetSourcePath)
         .map(src -> (BuildTargetSourcePath) src);
   }
@@ -380,8 +373,7 @@ public class GoProjectCommandHelper {
   private TargetGraphAndTargets createTargetGraph(
       TargetGraph projectGraph,
       ImmutableSet<BuildTarget> graphRoots,
-      boolean needsFullRecursiveParse,
-      ListeningExecutorService executor)
+      boolean needsFullRecursiveParse)
       throws IOException, InterruptedException, BuildFileParseException, VersionException {
 
     boolean isWithTests = isWithTests();
@@ -395,13 +387,12 @@ public class GoProjectCommandHelper {
     if (isWithTests) {
       explicitTestTargets = getExplicitTestTargets(graphRoots, projectGraph);
       projectGraph =
-          parser.buildTargetGraph(
-              cell, enableParserProfiling, executor, Sets.union(graphRoots, explicitTestTargets));
+          parser.buildTargetGraph(parsingContext, Sets.union(graphRoots, explicitTestTargets));
     }
 
     TargetGraphAndTargets targetGraphAndTargets =
         TargetGraphAndTargets.create(graphRoots, projectGraph, isWithTests, explicitTestTargets);
-    if (buckConfig.getBuildVersions()) {
+    if (buckConfig.getView(BuildBuckConfig.class).getBuildVersions()) {
       targetGraphAndTargets =
           VersionedTargetGraphAndTargets.toVersionedTargetGraphAndTargets(
               targetGraphAndTargets,
@@ -409,7 +400,9 @@ public class GoProjectCommandHelper {
               buckEventBus,
               buckConfig,
               params.getTypeCoercerFactory(),
-              explicitTestTargets);
+              params.getUnconfiguredBuildTargetFactory(),
+              explicitTestTargets,
+              targetConfiguration);
     }
     return targetGraphAndTargets;
   }

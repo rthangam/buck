@@ -24,9 +24,13 @@ import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -48,12 +52,16 @@ public class QueryCacheTest {
 
   @Test
   public void cacheQueryResults() throws QueryException {
-    Query q1 = Query.of("deps(:a) union deps(:c) except (deps(:a) intersect classpath(deps(:f)))");
-    Query q2 = Query.of("deps(:a) ^ classpath(deps(:f))");
-    Query q3 = Query.of("kind(binary, deps(:a))");
-    Query q4 = Query.of("attrfilter(deps, :e, set(:b :c :f :g))");
-    Query q5 = Query.of("kind(library, deps(:a) + deps(:c))");
-    Query q6 = Query.of("deps(:c)");
+    Query q1 =
+        Query.of(
+            "deps(:a) union deps(:c) except (deps(:a) intersect classpath(deps(:f)))",
+            EmptyTargetConfiguration.INSTANCE);
+    Query q2 = Query.of("deps(:a) ^ classpath(deps(:f))", EmptyTargetConfiguration.INSTANCE);
+    Query q3 = Query.of("kind(binary, deps(:a))", EmptyTargetConfiguration.INSTANCE);
+    Query q4 =
+        Query.of("attrfilter(deps, :e, set(:b :c :f :g))", EmptyTargetConfiguration.INSTANCE);
+    Query q5 = Query.of("kind(library, deps(:a) + deps(:c))", EmptyTargetConfiguration.INSTANCE);
+    Query q6 = Query.of("deps(:c)", EmptyTargetConfiguration.INSTANCE);
 
     BuildTarget foo = BuildTargetFactory.newInstance("//:foo");
     BuildTarget bar = BuildTargetFactory.newInstance("//:bar");
@@ -106,8 +114,10 @@ public class QueryCacheTest {
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),
+            new ParsingUnconfiguredBuildTargetViewFactory(),
             targetA.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            EmptyTargetConfiguration.INSTANCE);
 
     QueryCache cache = new QueryCache();
 
@@ -119,7 +129,10 @@ public class QueryCacheTest {
     assertFalse(cache.isPresent(targetGraph, env, q6));
 
     assertThat(
-        cache.getQueryEvaluator(targetGraph).eval(QueryExpression.parse(q1.getQuery(), env), env),
+        (ImmutableSet<QueryTarget>)
+            cache
+                .getQueryEvaluator(targetGraph)
+                .eval(QueryExpression.parse(q1.getQuery(), env), env),
         Matchers.containsInAnyOrder(
             QueryBuildTarget.of(targetA),
             QueryBuildTarget.of(targetB),
@@ -136,7 +149,7 @@ public class QueryCacheTest {
 
   @Test
   public void dynamicDeps() throws QueryException {
-    Query declared = Query.of("$declared_deps");
+    Query declared = Query.of("$declared_deps", EmptyTargetConfiguration.INSTANCE);
 
     BuildTarget fooTarget = BuildTargetFactory.newInstance("//:foo");
     BuildTarget barTarget = BuildTargetFactory.newInstance("//:bar");
@@ -163,6 +176,8 @@ public class QueryCacheTest {
             JavaLibraryBuilder.createBuilder(targetB).build());
 
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory =
+        new ParsingUnconfiguredBuildTargetViewFactory();
 
     GraphEnhancementQueryEnvironment fooEnv =
         new GraphEnhancementQueryEnvironment(
@@ -170,8 +185,10 @@ public class QueryCacheTest {
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),
+            unconfiguredBuildTargetFactory,
             fooTarget.getBaseName(),
-            foo.getDeclaredDeps());
+            foo.getDeclaredDeps(),
+            EmptyTargetConfiguration.INSTANCE);
 
     GraphEnhancementQueryEnvironment barEnv =
         new GraphEnhancementQueryEnvironment(
@@ -179,8 +196,10 @@ public class QueryCacheTest {
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),
+            unconfiguredBuildTargetFactory,
             barTarget.getBaseName(),
-            bar.getDeclaredDeps());
+            bar.getDeclaredDeps(),
+            EmptyTargetConfiguration.INSTANCE);
 
     QueryCache cache = new QueryCache();
 
@@ -188,18 +207,20 @@ public class QueryCacheTest {
     assertFalse(cache.isPresent(targetGraph, barEnv, declared));
 
     assertThat(
-        cache
-            .getQueryEvaluator(targetGraph)
-            .eval(QueryExpression.parse(declared.getQuery(), fooEnv), fooEnv),
+        (ImmutableSet<QueryTarget>)
+            cache
+                .getQueryEvaluator(targetGraph)
+                .eval(QueryExpression.parse(declared.getQuery(), fooEnv), fooEnv),
         Matchers.contains(QueryBuildTarget.of(targetA)));
 
     assertTrue(cache.isPresent(targetGraph, fooEnv, declared));
     assertFalse(cache.isPresent(targetGraph, barEnv, declared));
 
     assertThat(
-        cache
-            .getQueryEvaluator(targetGraph)
-            .eval(QueryExpression.parse(declared.getQuery(), barEnv), barEnv),
+        (ImmutableSet<QueryTarget>)
+            cache
+                .getQueryEvaluator(targetGraph)
+                .eval(QueryExpression.parse(declared.getQuery(), barEnv), barEnv),
         Matchers.contains(QueryBuildTarget.of(targetB)));
 
     assertTrue(cache.isPresent(targetGraph, fooEnv, declared));

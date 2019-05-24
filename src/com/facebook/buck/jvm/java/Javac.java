@@ -33,16 +33,14 @@ public interface Javac extends Tool {
   /** An escaper for arguments written to @argfiles. */
   Function<String, String> ARGFILES_ESCAPER = Escaper.javacEscaper();
 
-  String SRC_ZIP = ".src.zip";
-  String SRC_JAR = "-sources.jar";
-
   /** Prepares an invocation of the compiler with the given parameters. */
   Invocation newBuildInvocation(
       JavacExecutionContext context,
       SourcePathResolver resolver,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<JavacPluginJsr199Fields> pluginFields,
+      ImmutableList<JavacPluginJsr199Fields> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> javacPlugins,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,

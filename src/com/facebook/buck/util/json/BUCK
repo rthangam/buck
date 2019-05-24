@@ -2,6 +2,7 @@ java_library(
     name = "json",
     srcs = glob(["*.java"]),
     exported_deps = [
+        "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",
     ],
     tests = [
@@ -12,9 +13,10 @@ java_library(
     ],
     deps = [
         "//src/com/facebook/buck/core/exceptions:exceptions",
-        "//src/com/facebook/buck/util:exceptions",
+        "//src/com/facebook/buck/core/model:model",
+        "//src/com/facebook/buck/core/model/targetgraph/raw:raw",
+        "//src/com/facebook/buck/core/parser/buildtargetpattern:buildtargetpattern",
         "//third-party/java/guava:guava",
-        "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-datatype-guava",
         "//third-party/java/jackson:jackson-datatype-jdk8",
     ],

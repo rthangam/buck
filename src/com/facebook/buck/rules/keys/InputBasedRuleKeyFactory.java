@@ -21,11 +21,9 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasDeclaredAndExtraDeps;
-import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.DependencyAggregation;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
@@ -44,13 +42,12 @@ import java.util.function.Function;
 /**
  * A factory for generating input-based {@link RuleKey}s.
  *
- * @see SupportsInputBasedRuleKey
+ * @see com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey
  */
 public class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
 
   private final RuleKeyFieldLoader ruleKeyFieldLoader;
   private final FileHashLoader fileHashLoader;
-  private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final long inputSizeLimit;
   private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
@@ -61,13 +58,11 @@ public class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
   public InputBasedRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       long inputSizeLimit,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     this.ruleKeyFieldLoader = ruleKeyFieldLoader;
     this.fileHashLoader = hashLoader;
-    this.pathResolver = pathResolver;
     this.ruleFinder = ruleFinder;
     this.inputSizeLimit = inputSizeLimit;
     this.ruleKeyLogger = ruleKeyLogger;
@@ -109,8 +104,7 @@ public class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
     // At the moment, it is difficult to make SizeLimitException be a checked exception. Due to how
     // exceptions are currently handled (e.g. LoadingCache wraps them with ExecutionException),
     // we need to iterate through the cause chain to check if a SizeLimitException is wrapped.
-    Throwables.getCausalChain(throwable)
-        .stream()
+    Throwables.getCausalChain(throwable).stream()
         .filter(t -> t instanceof SizeLimiter.SizeLimitException)
         .findFirst()
         .ifPresent(Throwables::throwIfUnchecked);
@@ -158,7 +152,7 @@ public class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
     private final SizeLimiter sizeLimiter = new SizeLimiter(inputSizeLimit);
 
     public Builder(RuleKeyHasher<RULE_KEY> hasher) {
-      super(ruleFinder, pathResolver, fileHashLoader, hasher);
+      super(ruleFinder, fileHashLoader, hasher);
     }
 
     @Override

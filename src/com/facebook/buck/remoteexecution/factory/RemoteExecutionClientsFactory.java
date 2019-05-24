@@ -57,7 +57,7 @@ public class RemoteExecutionClientsFactory {
             remoteExecutionConfig.getCasInsecure(),
             remoteExecutionConfig.getCertFile(),
             remoteExecutionConfig.getKeyFile(),
-            remoteExecutionConfig.getCAsFile(),
+            remoteExecutionConfig.getCertificateAuthoritiesFile(),
             metadataProvider,
             eventBus);
       case DEBUG_GRPC_IN_PROCESS:

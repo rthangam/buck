@@ -16,7 +16,6 @@
 package com.facebook.buck.core.graph.transformation.executor.impl;
 
 import com.facebook.buck.core.graph.transformation.executor.DepsAwareTask;
-import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableSet;
@@ -28,12 +27,15 @@ import java.util.concurrent.atomic.AtomicReference;
 abstract class AbstractDepsAwareTask<T, TaskType extends AbstractDepsAwareTask<T, TaskType>>
     extends DepsAwareTask<T, TaskType> {
 
-  private final AtomicReference<TaskStatus> status =
+  protected final AtomicReference<TaskStatus> status =
       new AtomicReference<>(TaskStatus.NOT_SCHEDULED);
 
-  AbstractDepsAwareTask(
-      Callable<T> callable, ThrowingSupplier<ImmutableSet<TaskType>, Exception> depsSupplier) {
+  AbstractDepsAwareTask(Callable<T> callable, DepsSupplier<TaskType> depsSupplier) {
     super(callable, depsSupplier);
+  }
+
+  ImmutableSet<TaskType> getPrereqs() throws Exception {
+    return getDepsSupplier().getPrereq();
   }
 
   ImmutableSet<TaskType> getDependencies() throws Exception {
@@ -44,8 +46,11 @@ abstract class AbstractDepsAwareTask<T, TaskType extends AbstractDepsAwareTask<T
     try {
       Preconditions.checkState(status.get() == TaskStatus.STARTED);
       result.complete(getCallable().call());
-    } catch (Exception e) {
+    } catch (Throwable e) {
       result.completeExceptionally(e);
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
     } finally {
 
       Verify.verify(compareAndSetStatus(TaskStatus.STARTED, TaskStatus.DONE));

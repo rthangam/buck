@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -34,7 +35,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -196,16 +196,14 @@ public class ResourcesFilter extends AbstractBuildRule
 
     ImmutableList.Builder<Path> filteredResDirectoriesBuilder = ImmutableList.builder();
     ImmutableSet<Path> whitelistedStringPaths =
-        whitelistedStringDirs
-            .stream()
+        whitelistedStringDirs.stream()
             .map(
                 sourcePath ->
                     getProjectFilesystem()
                         .relativize(context.getSourcePathResolver().getAbsolutePath(sourcePath)))
             .collect(ImmutableSet.toImmutableSet());
     ImmutableList<Path> resPaths =
-        resDirectories
-            .stream()
+        resDirectories.stream()
             .map(
                 sourcePath ->
                     getProjectFilesystem()
@@ -376,9 +374,7 @@ public class ResourcesFilter extends AbstractBuildRule
   @Override
   public BuildOutput initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     ImmutableList<Path> stringFiles =
-        getProjectFilesystem()
-            .readLines(getStringFilesPath())
-            .stream()
+        getProjectFilesystem().readLines(getStringFilesPath()).stream()
             .map(Paths::get)
             .collect(ImmutableList.toImmutableList());
     return new BuildOutput(stringFiles);

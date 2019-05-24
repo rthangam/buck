@@ -48,7 +48,7 @@ public class RuleFunctionFactory {
   private static final ImmutableSet<String> IMPLICIT_ATTRIBUTES =
       ImmutableSet.of("visibility", "within_view");
   // URL prefix for all build rule documentation pages
-  private static final String BUCK_RULE_DOC_URL_PREFIX = "https://buckbuild.com/rule/";
+  private static final String BUCK_RULE_DOC_URL_PREFIX = "https://buck.build/rule/";
 
   private final TypeCoercerFactory typeCoercerFactory;
 
@@ -112,9 +112,7 @@ public class RuleFunctionFactory {
       FuncallExpression ast)
       throws EvalException {
     ImmutableList<ParamInfo> missingAttributes =
-        allParamInfo
-            .values()
-            .stream()
+        allParamInfo.values().stream()
             .filter(param -> !param.isOptional() && !kwargs.containsKey(param.getPythonName()))
             .collect(ImmutableList.toImmutableList());
     if (!missingAttributes.isEmpty()) {
@@ -122,8 +120,7 @@ public class RuleFunctionFactory {
           ast.getLocation(),
           name
               + " requires "
-              + missingAttributes
-                  .stream()
+              + missingAttributes.stream()
                   .map(ParamInfo::getPythonName)
                   .collect(Collectors.joining(" and "))
               + " but they are not provided.",

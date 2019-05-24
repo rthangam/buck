@@ -23,7 +23,8 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.ImmutableCell;
 import com.facebook.buck.core.cell.impl.RootCellFactory;
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Creates a {@link CellProvider} to be used in a distributed build. */
@@ -43,11 +45,11 @@ public class DistributedCellProviderFactory {
   public static CellProvider create(
       DistBuildCellParams rootCell,
       ImmutableMap<Path, DistBuildCellParams> cellParams,
-      CellPathResolver rootCellPathResolver) {
+      CellPathResolver rootCellPathResolver,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      Supplier<TargetConfiguration> targetConfiguration) {
     Map<String, Path> cellPaths =
-        cellParams
-            .values()
-            .stream()
+        cellParams.values().stream()
             .filter(p -> p.getCanonicalName().isPresent())
             .collect(
                 Collectors.toMap(
@@ -81,9 +83,9 @@ public class DistributedCellProviderFactory {
                       cellParam
                           .getConfig()
                           .withBuildTargetParser(
-                              target ->
-                                  BuildTargetParser.INSTANCE.parseFullyQualified(
-                                      cellPathResolverForParser, target));
+                              buildTargetName ->
+                                  unconfiguredBuildTargetFactory.create(
+                                      cellPathResolverForParser, buildTargetName));
                   RuleKeyConfiguration ruleKeyConfiguration =
                       ConfigRuleKeyConfigurationFactory.create(
                           configWithResolver, cellParam.getBuckModuleManager());
@@ -95,7 +97,8 @@ public class DistributedCellProviderFactory {
                           cellParam.getFilesystem(),
                           cellParam.getProcessExecutor(),
                           cellParam.getExecutableFinder(),
-                          ruleKeyConfiguration);
+                          ruleKeyConfiguration,
+                          targetConfiguration);
 
                   return ImmutableCell.of(
                       ImmutableSortedSet.copyOf(cellParams.keySet()),
@@ -106,7 +109,6 @@ public class DistributedCellProviderFactory {
                       configWithResolver,
                       cellProvider,
                       toolchainProvider,
-                      ruleKeyConfiguration,
                       currentCellResolver);
                 }),
         cellProvider ->
@@ -120,6 +122,7 @@ public class DistributedCellProviderFactory {
                 rootCell.getConfig(),
                 rootCell.getEnvironment(),
                 rootCell.getProcessExecutor(),
-                rootCell.getExecutableFinder()));
+                rootCell.getExecutableFinder(),
+                targetConfiguration));
   }
 }

@@ -22,6 +22,7 @@ import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -30,16 +31,12 @@ import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderB
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescriptionArg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -260,10 +257,6 @@ public class DuplicateResourcesTest {
             .build()
             .getFreshActionGraph(new DefaultTargetNodeToBuildRuleTransformer(), targetGraph);
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder()));
-
     ImmutableSet<ImmutableList<Step>> ruleSteps =
         RichStream.from(actionGraphAndBuilder.getActionGraph().getNodes())
             .filter(AaptPackageResources.class)
@@ -275,12 +268,12 @@ public class DuplicateResourcesTest {
             .map(
                 b ->
                     b.getBuildSteps(
-                        FakeBuildContext.withSourcePathResolver(pathResolver),
+                        FakeBuildContext.withSourcePathResolver(
+                            actionGraphAndBuilder.getActionGraphBuilder().getSourcePathResolver()),
                         new FakeBuildableContext()))
             .map(
                 steps ->
-                    steps
-                        .stream()
+                    steps.stream()
                         .filter(step -> step instanceof AaptStep)
                         .collect(ImmutableList.toImmutableList()))
             .filter(steps -> !steps.isEmpty())

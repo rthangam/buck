@@ -64,7 +64,6 @@ java_library(
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
-        "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
@@ -112,6 +111,9 @@ java_library(
 
 standard_java_test(
     name = "kotlin",
+    module_deps = [
+        "//src/com/facebook/buck/features/zip/rules:rules",
+    ],
     with_test_data = True,
     deps = [
         "//src-gen:thrift",
@@ -152,8 +154,6 @@ standard_java_test(
         "//src/com/facebook/buck/jvm/java:steps",
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/abi/source/api:api",
-        "//src/com/facebook/buck/jvm/java/autodeps:SymbolExtractor",
-        "//src/com/facebook/buck/jvm/java/autodeps:autodeps",
         "//src/com/facebook/buck/jvm/java/classes:classes",
         "//src/com/facebook/buck/jvm/kotlin:kotlin",
         "//src/com/facebook/buck/jvm/scala:scala",
@@ -177,9 +177,7 @@ standard_java_test(
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
-        "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
-        "//src/com/facebook/buck/util:packaged_resource",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/cache:cache",

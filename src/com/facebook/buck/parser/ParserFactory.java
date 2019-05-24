@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.watchman.Watchman;
@@ -37,44 +37,28 @@ public class ParserFactory {
       ConstructorArgMarshaller marshaller,
       KnownRuleTypesProvider knownRuleTypesProvider,
       ParserPythonInterpreterProvider parserPythonInterpreterProvider,
-      BuckConfig buckConfig,
       DaemonicParserState daemonicParserState,
       TargetSpecResolver targetSpecResolver,
       Watchman watchman,
       BuckEventBus eventBus,
       Supplier<ImmutableList<String>> targetPlatforms,
       ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
-      FileHashCache fileHashCache) {
-    if (buckConfig.getView(ParserConfig.class).getEnableConfigurableAttributes()) {
-      return new ParserWithConfigurableAttributes(
-          daemonicParserState,
-          new PerBuildStateFactoryWithConfigurableAttributes(
-              typeCoercerFactory,
-              marshaller,
-              knownRuleTypesProvider,
-              parserPythonInterpreterProvider,
-              watchman,
-              eventBus,
-              manifestServiceSupplier,
-              fileHashCache),
-          targetSpecResolver,
-          eventBus,
-          targetPlatforms);
-    } else {
-      return new DefaultParser(
-          daemonicParserState,
-          new LegacyPerBuildStateFactory(
-              typeCoercerFactory,
-              marshaller,
-              knownRuleTypesProvider,
-              parserPythonInterpreterProvider,
-              watchman,
-              eventBus,
-              manifestServiceSupplier,
-              fileHashCache),
-          targetSpecResolver,
-          eventBus,
-          targetPlatforms);
-    }
+      FileHashCache fileHashCache,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
+    return new ParserWithConfigurableAttributes(
+        daemonicParserState,
+        new PerBuildStateFactoryWithConfigurableAttributes(
+            typeCoercerFactory,
+            marshaller,
+            knownRuleTypesProvider,
+            parserPythonInterpreterProvider,
+            watchman,
+            eventBus,
+            manifestServiceSupplier,
+            fileHashCache,
+            unconfiguredBuildTargetFactory),
+        targetSpecResolver,
+        eventBus,
+        targetPlatforms);
   }
 }

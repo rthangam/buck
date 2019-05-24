@@ -19,9 +19,9 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.CustomFieldBehavior;
+import com.facebook.buck.core.rulekey.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
@@ -39,6 +39,15 @@ import org.immutables.value.Value;
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractJavacPluginProperties implements AddsToRuleKey {
+
+  enum Type {
+    JAVAC_PLUGIN,
+    ANNOTATION_PROCESSOR
+  }
+
+  @AddToRuleKey
+  public abstract Type getType();
+
   @Value.NaturalOrder
   @AddToRuleKey
   public abstract ImmutableSortedSet<String> getProcessorNames();
@@ -94,6 +103,10 @@ abstract class AbstractJavacPluginProperties implements AddsToRuleKey {
           if (entry.getSourcePathToOutput() != null) {
             addInputs(entry.getSourcePathToOutput());
           }
+
+          // Resources from dependency JavaLibraries must be included as inputs otherwise
+          // remote builds will fail with missing files in the execution sandbox.
+          entry.getResources().forEach(this::addInputs);
         }
         addAllClasspathEntries(hasClasspathEntries.getTransitiveClasspaths());
       } else {

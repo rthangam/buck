@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -34,7 +35,6 @@ import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.maven.aether.AetherUtil;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -129,8 +129,7 @@ public class Javadoc extends AbstractBuildRuleWithDeclaredAndExtraDeps implement
             getProjectFilesystem(),
             Joiner.on("\n")
                 .join(
-                    sources
-                        .stream()
+                    sources.stream()
                         .map(context.getSourcePathResolver()::getAbsolutePath)
                         .map(Path::toString)
                         .iterator()),
@@ -143,8 +142,7 @@ public class Javadoc extends AbstractBuildRuleWithDeclaredAndExtraDeps implement
     Joiner.on(File.pathSeparator)
         .appendTo(
             argsBuilder,
-            getBuildDeps()
-                .stream()
+            getBuildDeps().stream()
                 .filter(HasClasspathEntries.class::isInstance)
                 .flatMap(rule -> ((HasClasspathEntries) rule).getTransitiveClasspaths().stream())
                 .map(context.getSourcePathResolver()::getAbsolutePath)

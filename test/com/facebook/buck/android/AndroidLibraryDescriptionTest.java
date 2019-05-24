@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -37,6 +38,7 @@ import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
+import com.facebook.buck.jvm.java.JavacLanguageLevelOptions;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.rules.query.Query;
@@ -132,7 +134,9 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
         AndroidLibraryBuilder.createBuilder(target, javaBuckConfig)
             .addDep(libNode.getBuildTarget())
             .addSrc(Paths.get("Src.java"))
-            .setDepsQuery(Query.of("filter('.*lib', deps($declared_deps))"));
+            .setDepsQuery(
+                Query.of(
+                    "filter('.*lib', deps($declared_deps))", EmptyTargetConfiguration.INSTANCE));
     TargetNode<AndroidLibraryDescriptionArg> rule = ruleBuilder.build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode, rule);
@@ -228,7 +232,13 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
                 .build());
 
     JavacOptions options =
-        JavacOptions.builder().setSourceLevel("1.7").setTargetLevel("1.7").build();
+        JavacOptions.builder()
+            .setLanguageLevelOptions(
+                JavacLanguageLevelOptions.builder()
+                    .setSourceLevel("1.7")
+                    .setTargetLevel("1.7")
+                    .build())
+            .build();
     JavacOptions updated = options.withBootclasspathFromContext(extraClasspathProvider);
 
     assertEquals(

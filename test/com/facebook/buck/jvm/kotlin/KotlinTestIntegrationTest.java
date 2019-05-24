@@ -21,15 +21,16 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import java.io.IOException;
 import java.nio.file.Path;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 public class KotlinTestIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public Timeout timeout = Timeout.seconds(180);
 
   private ProjectWorkspace workspace;
 
@@ -47,26 +48,32 @@ public class KotlinTestIntegrationTest {
 
   /** Tests that a Test Rule without any tests to run does not fail. */
   @Test
-  public void emptyTestRule() throws IOException {
+  public void emptyTestRule() {
     ProcessResult result = workspace.runBuckCommand("test", "//com/example/empty_test:test");
     result.assertSuccess("An empty test rule should pass.");
   }
 
   @Test
-  public void allTestsPassingMakesTheBuildResultASuccess() throws Exception {
+  public void allTestsPassingMakesTheBuildResultASuccess() {
     ProcessResult result = workspace.runBuckCommand("test", "//com/example/basic:passing");
     result.assertSuccess("Build should've succeeded.");
   }
 
   @Test
-  public void oneTestFailingMakesBuildResultAFailure() throws Exception {
+  public void oneTestFailingMakesBuildResultAFailure() {
     ProcessResult result = workspace.runBuckCommand("test", "//com/example/basic:failing");
     result.assertTestFailure();
   }
 
   @Test
-  public void compilationFailureMakesTheBuildResultAFailure() throws Exception {
+  public void compilationFailureMakesTheBuildResultAFailure() {
     ProcessResult result = workspace.runBuckCommand("test", "//com/example/basic:failing");
     result.assertTestFailure("Test should've failed.");
+  }
+
+  @Test
+  public void weCanAccessAnotherModuleInternalModuleByAddingItToFriendPaths() {
+    ProcessResult result = workspace.runBuckCommand("test", "//com/example/friend_paths:passing");
+    result.assertSuccess("Build should've succeeded.");
   }
 }

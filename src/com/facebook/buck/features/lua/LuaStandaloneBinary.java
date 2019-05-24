@@ -18,6 +18,7 @@ package com.facebook.buck.features.lua;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -29,7 +30,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
@@ -47,18 +47,14 @@ public class LuaStandaloneBinary extends AbstractBuildRuleWithDeclaredAndExtraDe
 
   @AddToRuleKey private final Tool builder;
 
-  @AddToRuleKey private final ImmutableList<String> builderArgs;
-
   @AddToRuleKey(stringify = true)
   private final Path output;
 
-  @AddToRuleKey private final Optional<SourcePath> starter;
+  @AddToRuleKey private final SourcePath starter;
 
   @AddToRuleKey private final LuaPackageComponents components;
 
   @AddToRuleKey private final String mainModule;
-
-  @AddToRuleKey private final Tool lua;
 
   private final boolean cache;
 
@@ -67,21 +63,17 @@ public class LuaStandaloneBinary extends AbstractBuildRuleWithDeclaredAndExtraDe
       ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Tool builder,
-      ImmutableList<String> builderArgs,
       Path output,
-      Optional<SourcePath> starter,
+      SourcePath starter,
       LuaPackageComponents components,
       String mainModule,
-      Tool lua,
       boolean cache) {
     super(buildTarget, projectFilesystem, buildRuleParams);
     this.builder = builder;
-    this.builderArgs = builderArgs;
     this.output = output;
     this.starter = starter;
     this.components = components;
     this.mainModule = mainModule;
-    this.lua = lua;
     this.cache = cache;
   }
 
@@ -138,14 +130,9 @@ public class LuaStandaloneBinary extends AbstractBuildRuleWithDeclaredAndExtraDe
           protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
             ImmutableList.Builder<String> command = ImmutableList.builder();
             command.addAll(builder.getCommandPrefix(resolver));
-            command.addAll(builderArgs);
             command.add("--entry-point", mainModule);
             command.add("--interpreter");
-            if (starter.isPresent()) {
-              command.add(resolver.getAbsolutePath(starter.get()).toString());
-            } else {
-              command.add(lua.getCommandPrefix(resolver).get(0));
-            }
+            command.add(resolver.getAbsolutePath(starter).toString());
             command.add(getProjectFilesystem().resolve(output).toString());
             return command.build();
           }

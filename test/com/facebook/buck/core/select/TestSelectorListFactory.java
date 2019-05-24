@@ -16,12 +16,14 @@
 package com.facebook.buck.core.select;
 
 import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.select.impl.SelectorFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.rules.coercer.BuildTargetTypeCoercer;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.TypeCoercer;
+import com.facebook.buck.rules.coercer.UnconfiguredBuildTargetTypeCoercer;
 import com.google.common.collect.ImmutableList;
 import java.util.Map;
 
@@ -30,7 +32,10 @@ public class TestSelectorListFactory {
   public static <T> SelectorList<T> createSelectorListForCoercer(
       TypeCoercer<T> elementTypeCoercer, Map<String, ?>... selectors) throws CoerceFailedException {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SelectorFactory selectorFactory = new SelectorFactory(new BuildTargetTypeCoercer()::coerce);
+    SelectorFactory selectorFactory =
+        new SelectorFactory(
+            new UnconfiguredBuildTargetTypeCoercer(
+                new ParsingUnconfiguredBuildTargetViewFactory()));
     ImmutableList.Builder<Selector<T>> selectorBuilder = ImmutableList.builder();
     for (Map<String, ?> selectorAttributes : selectors) {
       Selector<T> selector =
@@ -38,6 +43,7 @@ public class TestSelectorListFactory {
               TestCellPathResolver.get(projectFilesystem),
               projectFilesystem,
               projectFilesystem.getRootPath(),
+              EmptyTargetConfiguration.INSTANCE,
               selectorAttributes,
               elementTypeCoercer);
       selectorBuilder.add(selector);

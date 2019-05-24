@@ -33,12 +33,10 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.features.project.intellij.aggregation.AggregationMode;
 import com.facebook.buck.features.project.intellij.aggregation.DefaultAggregationModuleFactory;
 import com.facebook.buck.features.project.intellij.model.DependencyType;
@@ -614,6 +612,40 @@ public class IjModuleGraphTest {
         Matchers.not(Matchers.equalTo(blah2Module.getModuleBasePath())));
   }
 
+  @Test
+  public void testMultiCellModule() {
+    ProjectFilesystem depFileSystem = new FakeProjectFilesystem(Paths.get("dep").toAbsolutePath());
+    ProjectFilesystem mainFileSystem =
+        new FakeProjectFilesystem(Paths.get("main").toAbsolutePath());
+
+    TargetNode<?> depTargetNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(depFileSystem, "dep//java/com/example:dep"),
+                depFileSystem)
+            .addSrc(Paths.get("java/com/example/Dep.java"))
+            .build();
+
+    TargetNode<?> mainTargetNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(mainFileSystem, "main//java/com/example:main"),
+                mainFileSystem)
+            .addSrc(Paths.get("java/com/example/Main.java"))
+            .addDep(depTargetNode.getBuildTarget())
+            .build();
+
+    IjModuleGraph moduleGraph =
+        createModuleGraph(
+            mainFileSystem,
+            ImmutableSet.of(depTargetNode, mainTargetNode),
+            ImmutableMap.of(),
+            Functions.constant(Optional.empty()),
+            AggregationMode.NONE,
+            true);
+    IjModule depModule = getModuleForTarget(moduleGraph, depTargetNode);
+    assertEquals(Paths.get("../dep/java/com/example"), depModule.getModuleBasePath());
+    assertEquals("___dep_java_com_example", depModule.getName());
+  }
+
   public static IjModuleGraph createModuleGraph(ImmutableSet<TargetNode<?>> targets) {
     return createModuleGraph(targets, ImmutableMap.of(), Functions.constant(Optional.empty()));
   }
@@ -627,12 +659,13 @@ public class IjModuleGraphTest {
   }
 
   public static IjModuleGraph createModuleGraph(
+      ProjectFilesystem filesystem,
       ImmutableSet<TargetNode<?>> targets,
       ImmutableMap<TargetNode<?>, SourcePath> javaLibraryPaths,
       Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver,
-      AggregationMode aggregationMode) {
-    SourcePathResolver sourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+      AggregationMode aggregationMode,
+      boolean isMultiCellModulesSupported) {
+    SourcePathResolver sourcePathResolver = new TestActionGraphBuilder().getSourcePathResolver();
     IjLibraryFactoryResolver sourceOnlyResolver =
         new IjLibraryFactoryResolver() {
           @Override
@@ -650,8 +683,8 @@ public class IjModuleGraphTest {
         IjTestProjectConfig.createBuilder(buckConfig)
             .setAggregationMode(aggregationMode)
             .setExcludeArtifactsEnabled(false)
+            .setMultiCellModuleSupportEnabled(isMultiCellModulesSupported)
             .build();
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     JavaPackageFinder packageFinder =
         (buckConfig == null)
             ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())
@@ -718,6 +751,20 @@ public class IjModuleGraphTest {
         libraryFactory,
         moduleFactory,
         new DefaultAggregationModuleFactory(typeRegistry));
+  }
+
+  public static IjModuleGraph createModuleGraph(
+      ImmutableSet<TargetNode<?>> targets,
+      ImmutableMap<TargetNode<?>, SourcePath> javaLibraryPaths,
+      Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver,
+      AggregationMode aggregationMode) {
+    return createModuleGraph(
+        new FakeProjectFilesystem(),
+        targets,
+        javaLibraryPaths,
+        rDotJavaClassPathResolver,
+        aggregationMode,
+        false);
   }
 
   public static IjProjectElement getProjectElementForTarget(

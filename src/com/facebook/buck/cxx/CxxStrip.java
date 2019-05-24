@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -160,10 +159,7 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
   }
 
   @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver sourcePathResolver) {
-    this.ruleFinder = ruleFinder;
+  public void updateBuildRuleResolver(BuildRuleResolver ruleResolver) {
+    this.ruleFinder = ruleResolver;
   }
 }

@@ -108,7 +108,8 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
     return projectFilesystem;
   }
 
-  protected abstract FetchResult fetchImpl(RuleKey ruleKey, LazyPath output) throws IOException;
+  protected abstract FetchResult fetchImpl(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) throws IOException;
 
   protected abstract MultiContainsResult multiContainsImpl(ImmutableSet<RuleKey> ruleKeys)
       throws IOException;
@@ -174,28 +175,23 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
     boolean gotNonError = false;
     try (CacheEventListener.MultiFetchRequestEvents requestEvents =
         eventListener.multiFetchStarted(
-            requests
-                .stream()
+            requests.stream()
                 .map(r -> r.getRequest().getBuildTarget())
                 .filter(Objects::nonNull)
                 .collect(ImmutableList.toImmutableList()),
-            requests
-                .stream()
+            requests.stream()
                 .map(r -> r.getRequest().getRuleKey())
                 .collect(ImmutableList.toImmutableList()))) {
       try {
         MultiFetchResult result =
             multiFetchImpl(
-                requests
-                    .stream()
+                requests.stream()
                     .map(ClaimedFetchRequest::getRequest)
                     .collect(ImmutableList.toImmutableList()));
         Preconditions.checkState(result.getResults().size() == requests.size());
         // MultiFetch must return a non-skipped result for at least one of the requested keys.
         Preconditions.checkState(
-            result
-                .getResults()
-                .stream()
+            result.getResults().stream()
                 .anyMatch(
                     fetchResult ->
                         fetchResult.getCacheResult().getType() != CacheResultType.SKIPPED));
@@ -211,15 +207,12 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
           }
         }
         gotNonError =
-            result
-                .getResults()
-                .stream()
+            result.getResults().stream()
                 .anyMatch(
                     fetchResult -> fetchResult.getCacheResult().getType() != CacheResultType.ERROR);
       } catch (IOException e) {
         ImmutableList<RuleKey> keys =
-            requests
-                .stream()
+            requests.stream()
                 .map(r -> r.getRequest().getRuleKey())
                 .collect(ImmutableList.toImmutableList());
         String msg =
@@ -264,7 +257,8 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
     CacheEventListener.FetchRequestEvents requestEvents =
         eventListener.fetchStarted(request.getBuildTarget(), request.getRuleKey());
     try {
-      FetchResult fetchResult = fetchImpl(request.getRuleKey(), request.getOutput());
+      FetchResult fetchResult =
+          fetchImpl(request.getBuildTarget(), request.getRuleKey(), request.getOutput());
       result = fetchResult.getCacheResult();
       requestEvents.finished(fetchResult);
     } catch (IOException e) {
@@ -730,7 +724,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   public interface AbstractFetchResult {
     Optional<Long> getResponseSizeBytes();
 
-    Optional<String> getBuildTarget();
+    Optional<BuildTarget> getBuildTarget();
 
     Optional<ImmutableSet<RuleKey>> getAssociatedRuleKeys();
 

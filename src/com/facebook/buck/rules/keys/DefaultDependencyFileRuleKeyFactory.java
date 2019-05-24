@@ -22,7 +22,6 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
@@ -46,7 +45,6 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
 
   private final RuleKeyFieldLoader ruleKeyFieldLoader;
   private final FileHashLoader fileHashLoader;
-  private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final long inputSizeLimit;
   private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
@@ -54,13 +52,11 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
   private DefaultDependencyFileRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       long inputSizeLimit,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     this.ruleKeyFieldLoader = ruleKeyFieldLoader;
     this.fileHashLoader = hashLoader;
-    this.pathResolver = pathResolver;
     this.ruleFinder = ruleFinder;
     this.inputSizeLimit = inputSizeLimit;
     this.ruleKeyLogger = ruleKeyLogger;
@@ -69,19 +65,16 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
   public DefaultDependencyFileRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
-    this(ruleKeyFieldLoader, hashLoader, pathResolver, ruleFinder, Long.MAX_VALUE, ruleKeyLogger);
+    this(ruleKeyFieldLoader, hashLoader, ruleFinder, Long.MAX_VALUE, ruleKeyLogger);
   }
 
   public DefaultDependencyFileRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder) {
-    this(
-        ruleKeyFieldLoader, hashLoader, pathResolver, ruleFinder, Long.MAX_VALUE, Optional.empty());
+    this(ruleKeyFieldLoader, hashLoader, ruleFinder, Long.MAX_VALUE, Optional.empty());
   }
 
   @Override
@@ -108,8 +101,8 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
             rule,
             keyType,
             depFileEntries,
-            rule.getCoveredByDepFilePredicate(pathResolver),
-            rule.getExistenceOfInterestPredicate(pathResolver),
+            rule.getCoveredByDepFilePredicate(ruleFinder.getSourcePathResolver()),
+            rule.getExistenceOfInterestPredicate(ruleFinder.getSourcePathResolver()),
             RuleKeyBuilder.createDefaultHasher(ruleKeyLogger));
     ruleKeyFieldLoader.setFields(builder, rule, keyType.toRuleKeyType());
     Result<RuleKey> result = builder.buildResult(RuleKey::new);
@@ -121,6 +114,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     private final SupportsDependencyFileRuleKey rule;
     private final KeyType keyType;
     private final ImmutableSet<DependencyFileEntry> depFileEntriesSet;
+    private final ImmutableSet<Path> depFilePossiblePaths;
 
     private final Predicate<SourcePath> coveredPathPredicate;
     private final Predicate<SourcePath> interestingPathPredicate;
@@ -137,12 +131,27 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
         Predicate<SourcePath> coveredPathPredicate,
         Predicate<SourcePath> interestingPathPredicate,
         RuleKeyHasher<RULE_KEY> hasher) {
-      super(ruleFinder, pathResolver, fileHashLoader, hasher);
+      super(ruleFinder, fileHashLoader, hasher);
       this.keyType = keyType;
       this.rule = rule;
       this.depFileEntriesSet = ImmutableSet.copyOf(depFileEntries);
+      this.depFilePossiblePaths = getDepfilePossiblePaths(depFileEntries);
       this.coveredPathPredicate = coveredPathPredicate;
       this.interestingPathPredicate = interestingPathPredicate;
+    }
+
+    /**
+     * To optimize the common case where a path isn't part of the depfile, we create a set of
+     * possible Paths that may be the pathToFile for a DependencyFileEntry.
+     */
+    private ImmutableSet<Path> getDepfilePossiblePaths(
+        ImmutableList<DependencyFileEntry> depFileEntries) {
+      ImmutableSet.Builder<Path> builder =
+          ImmutableSet.builderWithExpectedSize(depFileEntries.size());
+      for (DependencyFileEntry entry : depFileEntries) {
+        builder.add(entry.pathToFile());
+      }
+      return builder.build();
     }
 
     @Override
@@ -173,7 +182,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     protected Builder<RULE_KEY> setReflectively(@Nullable Object val) throws IOException {
       if (val instanceof ArchiveDependencySupplier) {
         Iterable<SourcePath> members =
-            ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver, ruleFinder)::iterator;
+            ((ArchiveDependencySupplier) val).getArchiveMembers(ruleFinder)::iterator;
         super.setReflectively(members);
       } else {
         super.setReflectively(val);
@@ -217,14 +226,21 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
           // 1: If this path is not covered by dep-file, then add it to the builder directly.
           this.setSourcePathDirectly(input);
         } else {
-          // 2,3,4: This input path is covered by the dep-file
-          DependencyFileEntry entry = DependencyFileEntry.fromSourcePath(input, pathResolver);
-          if (depFileEntriesSet.contains(entry)) {
-            // 2: input was declared as a real dependency by the dep-file entries so add to key
-            this.setSourcePathDirectly(input);
-            sourcePaths.add(input);
-            accountedEntries.add(entry);
-          } else if (interestingPathPredicate.test(input)) {
+          if (depFilePossiblePaths.contains(
+              DependencyFileEntry.getPathToFile(ruleFinder.getSourcePathResolver(), input))) {
+            // 2,3,4: This input path is covered by the dep-file
+            DependencyFileEntry entry =
+                DependencyFileEntry.fromSourcePath(input, ruleFinder.getSourcePathResolver());
+            if (depFileEntriesSet.contains(entry)) {
+              // 2: input was declared as a real dependency by the dep-file entries so add to key
+              this.setSourcePathDirectly(input);
+              sourcePaths.add(input);
+              accountedEntries.add(entry);
+              return this;
+            }
+          }
+
+          if (interestingPathPredicate.test(input)) {
             // 3: path not present in the dep-file, however the existence is of interest
             this.setNonHashingSourcePath(input);
           }

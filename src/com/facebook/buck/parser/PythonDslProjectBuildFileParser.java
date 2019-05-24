@@ -32,12 +32,16 @@ import com.facebook.buck.json.BuildFileParseExceptionStackTraceEntry;
 import com.facebook.buck.json.BuildFilePythonResult;
 import com.facebook.buck.json.BuildFileSyntaxError;
 import com.facebook.buck.parser.api.BuildFileManifest;
+import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.parser.events.ParseBuckProfilerReportEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.implicit.PackageImplicitIncludesFinder;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
+import com.facebook.buck.parser.syntax.ImmutableListWithSelects;
+import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
+import com.facebook.buck.parser.syntax.SelectorValue;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.util.InputStreamConsumer;
@@ -57,15 +61,17 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.io.CountingInputStream;
+import com.google.devtools.build.lib.syntax.Runtime;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -159,9 +165,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
                     new BufferedOutputStream(Files.newOutputStream(ignorePathsJson1))) {
                   ObjectMappers.WRITER.writeValue(
                       output,
-                      options
-                          .getIgnorePaths()
-                          .stream()
+                      options.getIgnorePaths().stream()
                           .map(PathMatcher::getPathOrGlob)
                           .collect(ImmutableList.toImmutableList()));
                 }
@@ -438,7 +442,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       if (values.isEmpty()) {
         // in case Python process cannot send values due to serialization issues, it will send an
         // empty list
-        return BuildFileManifest.of(
+        return ImmutableBuildFileManifest.of(
             ImmutableMap.of(),
             ImmutableSortedSet.of(),
             ImmutableMap.of(),
@@ -465,7 +469,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   @SuppressWarnings("unchecked")
   private BuildFileManifest toBuildFileManifest(ImmutableList<Map<String, Object>> values) {
-    return BuildFileManifest.of(
+    return ImmutableBuildFileManifest.of(
         indexTargetsByName(values.subList(0, values.size() - 3).asList()),
         ImmutableSortedSet.copyOf(
             Objects.requireNonNull(
@@ -485,8 +489,78 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       ImmutableList<Map<String, Object>> targets) {
     ImmutableMap.Builder<String, Map<String, Object>> builder =
         ImmutableMap.builderWithExpectedSize(targets.size());
-    targets.forEach(target -> builder.put((String) target.get("name"), target));
+    targets.forEach(
+        target -> builder.put((String) target.get("name"), convertSelectableAttributes(target)));
     return builder.build();
+  }
+
+  private static Map<String, Object> convertSelectableAttributes(Map<String, Object> values) {
+    return Maps.transformValues(
+        values, PythonDslProjectBuildFileParser::convertToSelectableAttributeIfNeeded);
+  }
+
+  /**
+   * When the given object if a map and it contains specific keys it's transformed in either a
+   * {@link com.facebook.buck.parser.syntax.ListWithSelects} or {@link
+   * com.facebook.buck.parser.syntax.SelectorValue}. This conversion is used to pass objects in JSON
+   * data.
+   *
+   * <p>The map may contain the following keys:
+   *
+   * <ul>
+   *   <li>{@code @type} - indicates the type of the object (either "SelectorList" or
+   *       "SelectorValue").
+   *   <li>{@code conditions} - contains a map of conditions for "SelectorList".
+   *   <li>{@code no_match_message} - contains a no match message for "SelectorList".
+   *   <li>{@code items} - contains a list of items for "SelectorValue".
+   * </ul>
+   */
+  @SuppressWarnings("unchecked")
+  private static Object convertToSelectableAttributeIfNeeded(Object value) {
+    if (!(value instanceof Map)) {
+      return value;
+    }
+    Map<String, Object> attributeValue = (Map<String, Object>) value;
+    String type = (String) attributeValue.get("@type");
+    if (type == null) {
+      return attributeValue;
+    }
+    if ("SelectorValue".equals(type)) {
+      Map<String, Object> conditions =
+          (Map<String, Object>) Objects.requireNonNull(attributeValue.get("conditions"));
+      Map<String, Object> convertedConditions =
+          Maps.transformValues(conditions, v -> v == null ? Runtime.NONE : v);
+      return ImmutableSelectorValue.of(
+          convertedConditions, Objects.toString(attributeValue.get("no_match_message"), ""));
+    } else {
+      Preconditions.checkState("SelectorList".equals(type));
+      List<Object> items = (List<Object>) Objects.requireNonNull(attributeValue.get("items"));
+      ImmutableList<Object> convertedElements = convertToSelectableAttributesIfNeeded(items);
+      return ImmutableListWithSelects.of(
+          convertedElements, getType(Iterables.getLast(convertedElements)));
+    }
+  }
+
+  private static ImmutableList<Object> convertToSelectableAttributesIfNeeded(
+      List<Object> attributes) {
+    ImmutableList.Builder<Object> convertedAttributes =
+        ImmutableList.builderWithExpectedSize(attributes.size());
+    for (Object attribute : attributes) {
+      convertedAttributes.add(
+          PythonDslProjectBuildFileParser.convertToSelectableAttributeIfNeeded(attribute));
+    }
+    return convertedAttributes.build();
+  }
+
+  private static Class<?> getType(Object object) {
+    if (object instanceof SelectorValue) {
+      return getType(
+          Objects.requireNonNull(
+                  Iterables.getFirst(((SelectorValue) object).getDictionary().entrySet(), null))
+              .getValue());
+    } else {
+      return object.getClass();
+    }
   }
 
   private BuildFilePythonResult performJsonRequest(ImmutableMap<String, Object> request)
@@ -528,14 +602,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
           ObjectMappers.createParser(Objects.requireNonNull(buckPyProcessInput).getInputStream());
     }
     LOG.verbose("Parsing output of process %s...", buckPyProcess);
-    BuildFilePythonResult resultObject;
-    try {
-      resultObject = buckPyProcessJsonParser.readValueAs(BuildFilePythonResult.class);
-    } catch (IOException e) {
-      LOG.warn(e, "Parser exited while decoding JSON data");
-      throw e;
-    }
-    return resultObject;
+    return buckPyProcessJsonParser.readValueAs(BuildFilePythonResult.class);
   }
 
   private static void handleDiagnostics(
@@ -593,12 +660,13 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     }
   }
 
-  private static Optional<BuildFileSyntaxError> parseSyntaxError(Map<String, Object> exceptionMap) {
+  private static Optional<BuildFileSyntaxError> parseSyntaxError(
+      Map<String, Object> exceptionMap, FileSystem fileSystem) {
     String type = (String) exceptionMap.get("type");
     if ("SyntaxError".equals(type)) {
       return Optional.of(
           BuildFileSyntaxError.of(
-              Paths.get((String) Objects.requireNonNull(exceptionMap.get("filename"))),
+              fileSystem.getPath((String) Objects.requireNonNull(exceptionMap.get("filename"))),
               (Number) Objects.requireNonNull(exceptionMap.get("lineno")),
               Optional.ofNullable((Number) exceptionMap.get("offset")),
               (String) Objects.requireNonNull(exceptionMap.get("text"))));
@@ -609,7 +677,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   @SuppressWarnings("unchecked")
   private static ImmutableList<BuildFileParseExceptionStackTraceEntry> parseStackTrace(
-      Map<String, Object> exceptionMap) {
+      Map<String, Object> exceptionMap, FileSystem fileSystem) {
     List<Map<String, Object>> traceback =
         (List<Map<String, Object>>) Objects.requireNonNull(exceptionMap.get("traceback"));
     ImmutableList.Builder<BuildFileParseExceptionStackTraceEntry> stackTraceBuilder =
@@ -617,7 +685,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     for (Map<String, Object> tracebackItem : traceback) {
       stackTraceBuilder.add(
           BuildFileParseExceptionStackTraceEntry.of(
-              Paths.get((String) Objects.requireNonNull(tracebackItem.get("filename"))),
+              fileSystem.getPath((String) Objects.requireNonNull(tracebackItem.get("filename"))),
               (Number) Objects.requireNonNull(tracebackItem.get("line_number")),
               (String) Objects.requireNonNull(tracebackItem.get("function_name")),
               (String) Objects.requireNonNull(tracebackItem.get("text"))));
@@ -626,17 +694,19 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   }
 
   @VisibleForTesting
-  static BuildFileParseExceptionData parseExceptionData(Map<String, Object> exceptionMap) {
+  static BuildFileParseExceptionData parseExceptionData(
+      Map<String, Object> exceptionMap, FileSystem fileSystem) {
     return BuildFileParseExceptionData.of(
         (String) Objects.requireNonNull(exceptionMap.get("type")),
         (String) Objects.requireNonNull(exceptionMap.get("value")),
-        parseSyntaxError(exceptionMap),
-        parseStackTrace(exceptionMap));
+        parseSyntaxError(exceptionMap, fileSystem),
+        parseStackTrace(exceptionMap, fileSystem));
   }
 
   private static boolean stackFrameFileIsBuckParser(Path filename, Path buckPyDir) {
     return filename.getParent().equals(buckPyDir)
-        || filename.endsWith(Paths.get("buck_server", "buck_parser", "buck.py"));
+        || filename.endsWith(
+            filename.getFileSystem().getPath("buck_server", "buck_parser", "buck.py"));
   }
 
   private static String formatStackTrace(
@@ -668,7 +738,8 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       return new IOException(message);
     } else {
       Map<String, Object> exceptionMap = (Map<String, Object>) exception;
-      BuildFileParseExceptionData exceptionData = parseExceptionData(exceptionMap);
+      BuildFileParseExceptionData exceptionData =
+          parseExceptionData(exceptionMap, buildFile.getFileSystem());
       LOG.debug("Received exception from buck.py parser: %s", exceptionData);
       Optional<BuildFileSyntaxError> syntaxErrorOpt = exceptionData.getSyntaxError();
       if (syntaxErrorOpt.isPresent()) {

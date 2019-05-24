@@ -18,7 +18,7 @@ package com.facebook.buck.versions;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
@@ -29,6 +29,12 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class QueryTargetTranslator implements TargetTranslator<Query> {
+
+  private final UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory;
+
+  public QueryTargetTranslator(UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+  }
 
   @Override
   public Class<Query> getTranslatableClass() {
@@ -60,8 +66,7 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
     // A pattern matching all of the build targets in the query string.
     Pattern targetsPattern =
         Pattern.compile(
-            targets
-                .stream()
+            targets.stream()
                 .map(Object::toString)
                 .map(Pattern::quote)
                 .collect(Collectors.joining("|")));
@@ -74,8 +79,9 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
     while (matcher.find()) {
       builder.append(queryString, lastEnd, matcher.start());
       BuildTarget target =
-          BuildTargetParser.INSTANCE.parse(
-              cellPathResolver, matcher.group(), targetBaseName, false);
+          unconfiguredBuildTargetFactory
+              .createForBaseName(cellPathResolver, targetBaseName, matcher.group())
+              .configure(query.getTargetConfiguration());
       Optional<BuildTarget> translated =
           translator.translate(cellPathResolver, targetBaseName, target);
       builder.append(translated.orElse(target).getFullyQualifiedName());
@@ -86,6 +92,11 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
 
     return queryString.equals(newQuery)
         ? Optional.empty()
-        : Optional.of(Query.of(newQuery, query.getBaseName(), query.getResolvedQuery()));
+        : Optional.of(
+            Query.of(
+                newQuery,
+                query.getTargetConfiguration(),
+                query.getBaseName(),
+                query.getResolvedQuery()));
   }
 }

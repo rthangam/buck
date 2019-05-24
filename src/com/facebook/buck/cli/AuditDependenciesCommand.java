@@ -89,7 +89,7 @@ public class AuditDependenciesCommand extends AbstractCommand {
               ConsoleEvent.info(
                   "'buck audit dependencies' is deprecated. Please use 'buck query' instead.\n"
                       + "The equivalent 'buck query' command is:\n$ %s\n\nThe query language is documented at "
-                      + "https://buckbuild.com/command/query.html",
+                      + "https://buck.build/command/query.html",
                   QueryCommand.buildAuditDependenciesQueryExpression(
                       getArguments(),
                       shouldShowTransitiveDependencies(),
@@ -106,33 +106,31 @@ public class AuditDependenciesCommand extends AbstractCommand {
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                    params.getCell().getBuckConfig(),
                     params.getWatchman(),
                     params.getBuckEventBus(),
                     params.getManifestServiceSupplier(),
-                    params.getFileHashCache())
+                    params.getFileHashCache(),
+                    params.getUnconfiguredBuildTargetFactory())
                 .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+                    getTargetPlatforms())) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params,
               parserState,
-              pool.getListeningExecutorService(),
-              getEnableParserProfiling(),
-              getExcludeIncompatibleTargets());
-      return QueryCommand.runMultipleQuery(
+              createParsingContext(params.getCell(), pool.getListeningExecutorService()));
+      QueryCommand.runMultipleQuery(
           params,
           env,
           QueryCommand.getAuditDependenciesQueryFormat(
               shouldShowTransitiveDependencies(), shouldIncludeTests()),
           getArgumentsFormattedAsBuildTargets(params.getBuckConfig()),
           shouldGenerateJsonOutput(),
-          ImmutableSet.of());
+          ImmutableSet.of(),
+          params.getConsole().getStdOut());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();
@@ -143,6 +141,7 @@ public class AuditDependenciesCommand extends AbstractCommand {
       // TODO(buck_team): catch specific exceptions and return proper codes
       return ExitCode.BUILD_ERROR;
     }
+    return ExitCode.SUCCESS;
   }
 
   @Override

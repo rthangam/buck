@@ -1,4 +1,7 @@
-load("//tools/build_rules:java_rules.bzl", "java_test")
+load(
+    "//tools/build_rules:java_rules.bzl",
+    "java_test",
+)
 
 java_test(
     name = "remoteexecution",
@@ -8,13 +11,11 @@ java_test(
     has_immutable_types = True,
     deps = [
         "//src/com/facebook/buck/core/model:model",
-        "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/event/listener/interfaces:interfaces",
+        "//src/com/facebook/buck/core/rules:rules",
         "//src/com/facebook/buck/remoteexecution:remoteexecution",
         "//src/com/facebook/buck/util:util",
         "//test/com/facebook/buck/core/config:testutil",
-        "//test/com/facebook/buck/core/model:testutil",
-        "//test/com/facebook/buck/event:testutil",
+        "//third-party/java/easymock:easymock",
         "//third-party/java/junit:junit",
     ],
 )

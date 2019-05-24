@@ -66,7 +66,6 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
-import java.util.SortedSet;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -122,11 +121,6 @@ public class CachingBuildEngineInitializableFromDiskTest extends CommonFixture {
 
     public SimpleNoopRule(BuildTarget buildTarget, ProjectFilesystem projectFilesystem) {
       super(buildTarget, projectFilesystem);
-    }
-
-    @Override
-    public SortedSet<BuildRule> getBuildDeps() {
-      return ImmutableSortedSet.of();
     }
   }
 
@@ -605,21 +599,14 @@ public class CachingBuildEngineInitializableFromDiskTest extends CommonFixture {
             .setRuleKeyFactories(
                 RuleKeyFactories.of(
                     new DefaultRuleKeyFactory(
-                        CachingBuildEngineTest.FIELD_LOADER,
-                        fileHashCache,
-                        pathResolver,
-                        ruleFinder),
+                        CachingBuildEngineTest.FIELD_LOADER, fileHashCache, graphBuilder),
                     new TestInputBasedRuleKeyFactory(
                         CachingBuildEngineTest.FIELD_LOADER,
                         fileHashCache,
-                        pathResolver,
-                        ruleFinder,
+                        graphBuilder,
                         CachingBuildEngineTest.NO_INPUT_FILE_SIZE_LIMIT),
                     new DefaultDependencyFileRuleKeyFactory(
-                        CachingBuildEngineTest.FIELD_LOADER,
-                        fileHashCache,
-                        pathResolver,
-                        ruleFinder)))
+                        CachingBuildEngineTest.FIELD_LOADER, fileHashCache, graphBuilder)))
             .build()) {
       // Build the dependent.
       BuildId buildId = new BuildId();

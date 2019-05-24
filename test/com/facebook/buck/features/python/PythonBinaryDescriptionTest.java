@@ -26,13 +26,13 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -42,7 +42,6 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
@@ -51,9 +50,9 @@ import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.features.python.toolchain.PexToolProvider;
 import com.facebook.buck.features.python.toolchain.PythonEnvironment;
@@ -100,7 +99,8 @@ public class PythonBinaryDescriptionTest {
   private static final PythonPlatform PY2 =
       new TestPythonPlatform(
           InternalFlavor.of("py2"),
-          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+          new PythonEnvironment(
+              Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
           Optional.of(PYTHON2_DEP_TARGET));
 
   @Test
@@ -185,8 +185,6 @@ public class PythonBinaryDescriptionTest {
   public void extensionConfig() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     PythonBuckConfig config =
         new PythonBuckConfig(
             FakeBuckConfig.builder()
@@ -198,7 +196,8 @@ public class PythonBinaryDescriptionTest {
         PythonBinaryBuilder.create(target, config, PythonTestUtils.PYTHON_PLATFORMS);
     PythonBinary binary = builder.setMainModule("main").build(graphBuilder);
     assertThat(
-        pathResolver
+        graphBuilder
+            .getSourcePathResolver()
             .getRelativePath(Objects.requireNonNull(binary.getSourcePathToOutput()))
             .toString(),
         Matchers.endsWith(".different_extension"));
@@ -208,13 +207,12 @@ public class PythonBinaryDescriptionTest {
   public void extensionParameter() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     PythonBinaryBuilder builder = PythonBinaryBuilder.create(target);
     PythonBinary binary =
         builder.setMainModule("main").setExtension(".different_extension").build(graphBuilder);
     assertThat(
-        pathResolver
+        graphBuilder
+            .getSourcePathResolver()
             .getRelativePath(Objects.requireNonNull(binary.getSourcePathToOutput()))
             .toString(),
         Matchers.endsWith(".different_extension"));
@@ -224,8 +222,6 @@ public class PythonBinaryDescriptionTest {
   public void buildArgs() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ImmutableList<String> buildArgs = ImmutableList.of("--some", "--args");
     PythonBinary binary =
         PythonBinaryBuilder.create(target)
@@ -234,7 +230,8 @@ public class PythonBinaryDescriptionTest {
             .build(graphBuilder);
     ImmutableList<? extends Step> buildSteps =
         binary.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
+            FakeBuildContext.withSourcePathResolver(graphBuilder.getSourcePathResolver()),
+            new FakeBuildableContext());
     PexStep pexStep = FluentIterable.from(buildSteps).filter(PexStep.class).get(0);
     assertThat(pexStep.getCommandPrefix(), Matchers.hasItems(buildArgs.toArray(new String[0])));
   }
@@ -244,12 +241,18 @@ public class PythonBinaryDescriptionTest {
     PythonPlatform platform1 =
         new TestPythonPlatform(
             InternalFlavor.of("pyPlat1"),
-            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6.9")),
+            new PythonEnvironment(
+                Paths.get("python2.6"),
+                PythonVersion.of("CPython", "2.6.9"),
+                PythonBuckConfig.SECTION),
             Optional.empty());
     PythonPlatform platform2 =
         new TestPythonPlatform(
             InternalFlavor.of("pyPlat2"),
-            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7.11")),
+            new PythonEnvironment(
+                Paths.get("python2.7"),
+                PythonVersion.of("CPython", "2.7.11"),
+                PythonBuckConfig.SECTION),
             Optional.empty());
     PythonBinaryBuilder builder =
         PythonBinaryBuilder.create(
@@ -302,14 +305,14 @@ public class PythonBinaryDescriptionTest {
 
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
     Path executor = Paths.get("/root/executor");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build()) {
           @Override
-          public Optional<Tool> getPexExecutor(BuildRuleResolver resolver) {
+          public Optional<Tool> getPexExecutor(
+              BuildRuleResolver resolver, TargetConfiguration targetConfiguration) {
             return Optional.of(new HashedFileTool(PathSourcePath.of(filesystem, executor)));
           }
         };
@@ -328,8 +331,7 @@ public class PythonBinaryDescriptionTest {
   public void executableCommandWithNoPathToPexExecutor() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
     PythonPackagedBinary binary =
         (PythonPackagedBinary)
             PythonBinaryBuilder.create(target).setMainModule("main").build(graphBuilder);
@@ -350,7 +352,7 @@ public class PythonBinaryDescriptionTest {
             .build(graphBuilder);
     PythonBuckConfig config = new PythonBuckConfig(FakeBuckConfig.builder().build());
     PexToolProvider pexToolProvider =
-        (__) ->
+        (__, ___) ->
             new CommandTool.Builder()
                 .addArg(SourcePathArg.of(pexTool.getSourcePathToOutput()))
                 .build();
@@ -643,8 +645,6 @@ public class PythonBinaryDescriptionTest {
         new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(
                 cxxDepBuilder.build(), cxxBuilder.build(), binaryBuilder.build()));
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     cxxDepBuilder.build(graphBuilder);
     cxxBuilder.build(graphBuilder);
     PythonBinary binary = binaryBuilder.build(graphBuilder);
@@ -654,7 +654,9 @@ public class PythonBinaryDescriptionTest {
         graphBuilder
             .getRuleOptionalWithType(((BuildTargetSourcePath) mergedLib).getTarget(), CxxLink.class)
             .get();
-    assertThat(Arg.stringify(link.getArgs(), pathResolver), Matchers.hasItem("-flag"));
+    assertThat(
+        Arg.stringify(link.getArgs(), graphBuilder.getSourcePathResolver()),
+        Matchers.hasItem("-flag"));
   }
 
   @Test
@@ -755,7 +757,8 @@ public class PythonBinaryDescriptionTest {
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build()) {
           @Override
-          public Optional<BuildTarget> getPexExecutorTarget() {
+          public Optional<BuildTarget> getPexExecutorTarget(
+              TargetConfiguration targetConfiguration) {
             return Optional.of(pexBuilder);
           }
         };
@@ -785,7 +788,8 @@ public class PythonBinaryDescriptionTest {
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build()) {
           @Override
-          public Optional<Tool> getPexExecutor(BuildRuleResolver resolver) {
+          public Optional<Tool> getPexExecutor(
+              BuildRuleResolver resolver, TargetConfiguration targetConfiguration) {
             return Optional.of(pyTool.getExecutableCommand());
           }
         };
@@ -797,9 +801,7 @@ public class PythonBinaryDescriptionTest {
             .setPackageStyle(PythonBuckConfig.PackageStyle.STANDALONE)
             .build(graphBuilder);
     assertThat(
-        standaloneBinary
-            .getRuntimeDeps(new SourcePathRuleFinder(graphBuilder))
-            .collect(ImmutableSet.toImmutableSet()),
+        standaloneBinary.getRuntimeDeps(graphBuilder).collect(ImmutableSet.toImmutableSet()),
         Matchers.hasItem(pyTool.getBuildTarget()));
   }
 
@@ -871,11 +873,11 @@ public class PythonBinaryDescriptionTest {
 
   @Test
   public void cxxPlatform() {
-    CxxPlatform platformA =
-        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("platA"));
-    CxxPlatform platformB =
-        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("platB"));
-    FlavorDomain<CxxPlatform> cxxPlatforms =
+    UnresolvedCxxPlatform platformA =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(InternalFlavor.of("platA"));
+    UnresolvedCxxPlatform platformB =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(InternalFlavor.of("platB"));
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
         FlavorDomain.from("C/C++ platform", ImmutableList.of(platformA, platformB));
     SourcePath libASrc = FakeSourcePath.of("libA.py");
     PythonLibraryBuilder libraryABuilder =
@@ -896,7 +898,7 @@ public class PythonBinaryDescriptionTest {
                 BuildTargetFactory.newInstance("//:bin"),
                 PythonTestUtils.PYTHON_CONFIG,
                 PythonTestUtils.PYTHON_PLATFORMS,
-                CxxPlatformUtils.DEFAULT_PLATFORM,
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
                 cxxPlatforms)
             .setMainModule("main")
             .setCxxPlatform(platformA.getFlavor())
@@ -920,14 +922,12 @@ public class PythonBinaryDescriptionTest {
   }
 
   private RuleKey calculateRuleKey(BuildRuleResolver ruleResolver, BuildRule rule) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create()),
             StackedFileHashCache.createDefaultHashCaches(
                 rule.getProjectFilesystem(), FileHashCacheMode.DEFAULT),
-            DefaultSourcePathResolver.from(ruleFinder),
-            ruleFinder);
+            ruleResolver);
     return ruleKeyFactory.build(rule);
   }
 }

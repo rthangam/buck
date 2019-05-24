@@ -23,9 +23,9 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.toolchain.impl.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.ParameterizedTests;
@@ -138,9 +138,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Now verify that using shared library interfaces does not cause a rebuild after making a
     // non-interface change.
@@ -161,9 +161,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -187,9 +187,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Now verify that using shared library interfaces does not cause a rebuild after making a
     // non-interface change.
@@ -210,9 +210,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -236,9 +236,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Revert changes.
     assertTrue(workspace.replaceFileContents("library.cpp", "return bar1 += 15", "return bar1"));
@@ -262,9 +262,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 
   @Test
@@ -307,7 +307,7 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     assertTrue(workspace.replaceFileContents("library.cpp", "bar1", "bar2"));
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
-    log.assertTargetBuiltLocally(staticBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(staticBinaryBuiltTarget);
   }
 
   @Test
@@ -332,9 +332,9 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(argv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget.toString());
+    log.assertTargetBuiltLocally(sharedBinaryBuiltTarget);
 
     // Revert changes.
     workspace.writeContentsToPath(originalContents, "library.cpp");
@@ -356,8 +356,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     workspace.runBuckBuild(iArgv).assertSuccess();
     log = workspace.getBuildLog();
     if (sharedLibraryTarget.isPresent()) {
-      log.assertTargetBuiltLocally(sharedLibraryTarget.get().toString());
+      log.assertTargetBuiltLocally(sharedLibraryTarget.get());
     }
-    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget.toString());
+    log.assertTargetHadMatchingInputRuleKey(sharedBinaryBuiltTarget);
   }
 }

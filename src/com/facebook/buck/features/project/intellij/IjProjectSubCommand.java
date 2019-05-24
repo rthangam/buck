@@ -196,7 +196,9 @@ public class IjProjectSubCommand extends ProjectSubCommand {
             params.getActionGraphProvider(),
             params.getVersionedTargetGraphCache(),
             params.getTypeCoercerFactory(),
+            params.getUnconfiguredBuildTargetFactory(),
             params.getCell(),
+            params.getTargetConfiguration(),
             projectConfig,
             projectGeneratorParameters.getEnableParserProfiling(),
             processAnnotations,
@@ -209,8 +211,7 @@ public class IjProjectSubCommand extends ProjectSubCommand {
   }
 
   private ExitCode runBuild(
-      CommandRunnerParams params, ImmutableSet<BuildTarget> targets, boolean disableCaching)
-      throws IOException, InterruptedException {
+      CommandRunnerParams params, ImmutableSet<BuildTarget> targets, boolean disableCaching) {
     BuildCommand buildCommand =
         new BuildCommand(
             targets.stream().map(Object::toString).collect(ImmutableList.toImmutableList()));

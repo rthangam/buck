@@ -24,12 +24,16 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -43,15 +47,16 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
+import com.facebook.buck.testutil.CloseableResource;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -64,6 +69,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
@@ -79,6 +85,10 @@ public class TargetGraphHashingTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
   @Rule public ExpectedException thrown = ExpectedException.none();
+
+  @Rule
+  public CloseableResource<DepsAwareExecutor<? super ComputeResult, ?>> executor =
+      CloseableResource.of(() -> DefaultDepsAwareExecutor.of(4));
 
   private BuckEventBus eventBus;
   private RuleKeyConfiguration ruleKeyConfiguration;
@@ -98,7 +108,7 @@ public class TargetGraphHashingTest {
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
     Parser parser =
-        TestParserFactory.create(cell.getBuckConfig(), knownRuleTypesProvider, eventBus);
+        TestParserFactory.create(executor.get(), cell, knownRuleTypesProvider, eventBus);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     PerBuildState parserState =
         PerBuildStateFactory.createFactory(
@@ -106,18 +116,15 @@ public class TargetGraphHashingTest {
                 new DefaultConstructorArgMarshaller(typeCoercerFactory),
                 knownRuleTypesProvider,
                 new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()),
-                cell.getBuckConfig(),
                 WatchmanFactory.NULL_WATCHMAN,
                 eventBus,
                 ThrowingCloseableMemoizedSupplier.of(() -> null, ManifestService::close),
-                new FakeFileHashCache(ImmutableMap.of()))
+                new FakeFileHashCache(ImmutableMap.of()),
+                new ParsingUnconfiguredBuildTargetViewFactory())
             .create(
+                ParsingContext.builder(cell, MoreExecutors.newDirectExecutorService()).build(),
                 parser.getPermState(),
-                MoreExecutors.newDirectExecutorService(),
-                cell,
-                ImmutableList.of(),
-                false,
-                SpeculativeParsing.DISABLED);
+                ImmutableList.of());
     targetNodeRawAttributesProvider =
         node -> parser.getTargetNodeRawAttributesJob(parserState, cell, node);
   }
@@ -134,7 +141,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph()
             .entrySet(),
         empty());
@@ -166,7 +174,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(node),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> modifiedResult =
@@ -177,7 +186,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(node),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(baseResult, aMapWithSize(1));
@@ -217,7 +227,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(nodeA),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> resultsB =
@@ -228,7 +239,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(nodeB),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> commonResults =
@@ -239,7 +251,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(nodeA, nodeB),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(resultsA, aMapWithSize(1));
@@ -290,7 +303,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(targetGraphA.get(nodeTarget)),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> resultB =
@@ -301,7 +315,8 @@ public class TargetGraphHashingTest {
                 ImmutableList.of(targetGraphB.get(nodeTarget)),
                 MoreExecutors.newDirectExecutorService(),
                 ruleKeyConfiguration,
-                targetNodeRawAttributesProvider)
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(resultA, aMapWithSize(2));
@@ -336,7 +351,8 @@ public class TargetGraphHashingTest {
             ImmutableList.of(node),
             MoreExecutors.newDirectExecutorService(),
             ruleKeyConfiguration,
-            targetNodeRawAttributesProvider)
+            targetNodeRawAttributesProvider,
+            Hashing.murmur3_128())
         .hashTargetGraph();
   }
 

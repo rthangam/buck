@@ -82,12 +82,11 @@ public class AuditFlavorsCommand extends AbstractCommand {
                 .getParser()
                 .getPerBuildStateFactory()
                 .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+                    getTargetPlatforms())) {
 
       for (BuildTarget target : targets) {
         TargetNode<?> targetNode = params.getParser().getTargetNode(parserState, target);
@@ -173,8 +172,7 @@ public class AuditFlavorsCommand extends AbstractCommand {
               continue;
             }
             SortedMap<String, String> flavorsJson =
-                userFlavors
-                    .stream()
+                userFlavors.stream()
                     .collect(
                         ImmutableSortedMap.toImmutableSortedMap(
                             Ordering.natural(), UserFlavor::getName, UserFlavor::getDescription));

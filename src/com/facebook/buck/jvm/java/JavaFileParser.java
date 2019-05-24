@@ -455,7 +455,7 @@ public class JavaFileParser {
     this.javaVersion = javaVersion;
   }
 
-  public static JavaFileParser createJavaFileParser(JavacOptions options) {
+  public static JavaFileParser createJavaFileParser(AbstractJavacLanguageLevelOptions options) {
     String javaVersion = Objects.requireNonNull(javaVersionMap.get(options.getSourceLevel()));
     return new JavaFileParser(AST.JLS8, javaVersion);
   }
@@ -645,7 +645,7 @@ public class JavaFileParser {
 
               simpleImportedTypes.put(name, enclosingType);
             } else {
-              LOG.warn("Suspicious import lacks obvious enclosing type: %s", fullyQualifiedName);
+              LOG.info("Suspicious import lacks obvious enclosing type: %s", fullyQualifiedName);
               // The one example we have seen of this in the wild is
               // "org.whispersystems.curve25519.java.curve_sigs". In practice, we still need to add
               // it as a required symbol in this case.

@@ -19,7 +19,6 @@ package com.facebook.buck.event.listener;
 import static com.facebook.buck.event.TestEventConfigurator.configureTestEventAtTime;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
@@ -34,18 +33,23 @@ import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
-import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.DistributedExitCode;
+import com.facebook.buck.distributed.ImmutableDistBuildStatus;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
 import com.facebook.buck.distributed.build_client.DistBuildSuperConsoleEvent;
@@ -63,22 +67,21 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.InstallEvent;
-import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.ProgressEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.event.listener.util.ProgressEstimator;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRuleEvent;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -127,9 +130,9 @@ import org.junit.runners.Parameterized.Parameters;
 
 @RunWith(Parameterized.class)
 public class SuperConsoleEventBusListenerTest {
-  private static final String TARGET_ONE = "TARGET_ONE";
-  private static final String TARGET_TWO = "TARGET_TWO";
-  private static final String TARGET_THREE = "TARGET_THREE";
+  private static final String TARGET_ONE = "//target:one";
+  private static final String TARGET_TWO = "//target:two";
+  private static final String TARGET_THREE = "//target:three";
   private static final String SEVERE_MESSAGE = "This is a sample severe message.";
   private static final TestResultSummaryVerbosity noisySummaryVerbosity =
       TestResultSummaryVerbosity.of(true, true);
@@ -162,21 +165,39 @@ public class SuperConsoleEventBusListenerTest {
     durationTracker = new BuildRuleDurationTracker();
   }
 
-  @Parameters(name = "{2}")
+  @Parameters(name = "{0}")
   public static Collection<Object[]> data() {
     return Arrays.asList(
         new Object[][] {
-          {false, Optional.empty(), "no_build_id_and_no_build_url"},
-          {true, Optional.empty(), "build_id_and_no_build_url"},
           {
-            true,
-            Optional.of("View details at https://example.com/build/{build_id}"),
-            "build_id_and_build_url"
+            "no_build_id_and_no_build_url",
+            false,
+            Optional.empty(),
+            ImmutableSet.of("build", "test", "install")
           },
           {
+            "build_id_and_no_build_url",
+            true,
+            Optional.empty(),
+            ImmutableSet.of("build", "test", "install")
+          },
+          {
+            "build_id_and_build_url",
+            true,
+            Optional.of("View details at https://example.com/build/{build_id}"),
+            ImmutableSet.of("build", "test", "install")
+          },
+          {
+            "no_build_id_and_build_url",
             false,
             Optional.of("View details at https://example.com/build/{build_id}"),
-            "no_build_id_and_build_url"
+            ImmutableSet.of("build", "test", "install")
+          },
+          {
+            "no_build_id_and_build_url_but_no_build_command",
+            false,
+            Optional.of("View details at https://example.com/build/{build_id}"),
+            ImmutableSet.of()
           }
         });
   }
@@ -184,13 +205,16 @@ public class SuperConsoleEventBusListenerTest {
   private final BuildId buildId = new BuildId("1234-5678");
 
   @Parameterized.Parameter(0)
-  public boolean printBuildId;
+  public String _ignoredName;
 
   @Parameterized.Parameter(1)
-  public Optional<String> buildDetailsTemplate;
+  public boolean printBuildId;
 
   @Parameterized.Parameter(2)
-  public String _ignoredName;
+  public Optional<String> buildDetailsTemplate;
+
+  @Parameterized.Parameter(3)
+  public ImmutableSet<String> buildDetailsCommands;
 
   private static class TestRenderingConsole extends RenderingConsole {
     private final TestConsole testConsole;
@@ -214,7 +238,12 @@ public class SuperConsoleEventBusListenerTest {
     TestRenderingConsole renderingConsole = new TestRenderingConsole(fakeClock, new TestConsole());
     SuperConsoleEventBusListener listener =
         createSuperConsole(
-            fakeClock, eventBus, printBuildId, buildDetailsTemplate, renderingConsole);
+            fakeClock,
+            eventBus,
+            printBuildId,
+            buildDetailsTemplate,
+            buildDetailsCommands,
+            renderingConsole);
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget dirCachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
@@ -350,8 +379,13 @@ public class SuperConsoleEventBusListenerTest {
             "Building... 0.3 sec",
             " - //banana:stand... 0.1 sec (preparing)"));
 
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(new FakeProjectFilesystem());
+    UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory =
+        new ParsingUnconfiguredBuildTargetViewFactory();
     DirArtifactCacheEvent.DirArtifactCacheEventFactory dirArtifactCacheEventFactory =
-        new DirArtifactCacheEvent.DirArtifactCacheEventFactory();
+        new DirArtifactCacheEvent.DirArtifactCacheEventFactory(
+            target -> unconfiguredBuildTargetFactory.create(cellPathResolver, target),
+            TargetConfigurationSerializerForTests.create(cellPathResolver));
 
     ArtifactCacheEvent.Started dirFetchStarted =
         dirArtifactCacheEventFactory.newFetchStartedEvent(ImmutableSet.of());
@@ -509,6 +543,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -551,6 +586,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.FETCHED_FROM_CACHE),
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -640,13 +676,16 @@ public class SuperConsoleEventBusListenerTest {
             installingFinished));
 
     HttpArtifactCacheEvent.Scheduled storeScheduledOne =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_ONE, 6000L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, 0L, BuildTargetFactory.newInstance(TARGET_ONE), 6000L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_TWO, 6010L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, 0L, BuildTargetFactory.newInstance(TARGET_TWO), 6010L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledThree =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_THREE, 6020L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, 0L, BuildTargetFactory.newInstance(TARGET_THREE), 6020L);
 
     validateBuildIdConsole(
         listener,
@@ -735,7 +774,7 @@ public class SuperConsoleEventBusListenerTest {
     CommandEvent.Started commandStarted =
         CommandEvent.started("build", ImmutableList.of(), OptionalLong.of(100), 1234);
     eventBus.post(CommandEvent.finished(commandStarted, ExitCode.SUCCESS));
-    if (buildDetailsTemplate.isPresent()) {
+    if (buildDetailsCommands.contains("build") && buildDetailsTemplate.isPresent()) {
       validateBuildIdConsole(
           listener,
           renderingConsole,
@@ -876,6 +915,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -918,6 +958,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1080,7 +1121,9 @@ public class SuperConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new DistBuildStatusEvent(
-                job, DistBuildStatus.builder().setStatus(BuildStatus.QUEUED.toString()).build()),
+                job,
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.QUEUED.toString()), ImmutableList.of())),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1111,7 +1154,8 @@ public class SuperConsoleEventBusListenerTest {
     timeMillis += 100;
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            new DistBuildStatusEvent(job, DistBuildStatus.builder().build()),
+            new DistBuildStatusEvent(
+                job, new ImmutableDistBuildStatus(Optional.empty(), ImmutableList.of())),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1125,6 +1169,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1158,10 +1203,9 @@ public class SuperConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus(BuildStatus.BUILDING.toString())
-                    .setSlaveStatuses(ImmutableList.of(slave1, slave2, slave3))
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.BUILDING.toString()),
+                    ImmutableList.of(slave1, slave2, slave3))),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1216,10 +1260,9 @@ public class SuperConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus(BuildStatus.BUILDING.toString())
-                    .setSlaveStatuses(ImmutableList.of(slave1, slave2, slave3))
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.BUILDING.toString()),
+                    ImmutableList.of(slave1, slave2, slave3))),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1274,10 +1317,8 @@ public class SuperConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus("custom")
-                    .setSlaveStatuses(ImmutableList.of(slave1, slave2, slave3))
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of("custom"), ImmutableList.of(slave1, slave2, slave3))),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1308,7 +1349,9 @@ public class SuperConsoleEventBusListenerTest {
                     ArtifactCacheMode.thrift_over_http.name(), ArtifactCacheMode.thrift_over_http),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.FETCHED_FROM_CACHE),
+                // TODO(cjhopman): This doesn't make sense. It's a cache hit on an uncacheable rule.
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1321,6 +1364,9 @@ public class SuperConsoleEventBusListenerTest {
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
+
+    // TODO(cjhopman): The implementation of stampede's local reset thing is broken and leaves the
+    // superconsole objects in an invalid state...
 
     timeMillis += 100;
     validateConsole(
@@ -1336,8 +1382,8 @@ public class SuperConsoleEventBusListenerTest {
             " - Building 1 jobs... built 19/20 jobs, 1 jobs failed, 0.0% cache miss, "
                 + "1 [5.3%] cache errors, 1/3 uploaded, 1 upload errors",
             " - Building 1 jobs... built 9/10 jobs, 11.1% cache miss",
-            formatCacheStatsLine(true, 0, 0f, 100f),
-            "Local Steps... 1.4 sec (20%) 1/5 jobs, 1 updated",
+            formatCacheStatsLine(true, 0, 0f, 50f),
+            "Local Steps... 1.4 sec (20%) 1/5 jobs, 2 updated",
             " - IDLE"));
 
     slave2.setRulesBuildingCount(0);
@@ -1348,10 +1394,8 @@ public class SuperConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus("custom")
-                    .setSlaveStatuses(ImmutableList.of(slave1, slave2, slave3))
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of("custom"), ImmutableList.of(slave1, slave2, slave3))),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1366,8 +1410,8 @@ public class SuperConsoleEventBusListenerTest {
                 + " 3.4% cache miss, 1 [3.4%] cache errors, 1 upload errors"
                 + "; local status: building",
             " - Building 1 jobs... built 9/10 jobs, 11.1% cache miss",
-            formatCacheStatsLine(true, 0, 0f, 100f),
-            "Local Steps... 1.4 sec (20%) 1/5 jobs, 1 updated",
+            formatCacheStatsLine(true, 0, 0f, 50f),
+            "Local Steps... 1.4 sec (20%) 1/5 jobs, 2 updated",
             " - IDLE"));
 
     timeMillis += 100;
@@ -1380,10 +1424,9 @@ public class SuperConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus(BuildStatus.FINISHED_SUCCESSFULLY.toString())
-                    .setSlaveStatuses(ImmutableList.of(slave1, slave2, slave3))
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.FINISHED_SUCCESSFULLY.toString()),
+                    ImmutableList.of(slave1, slave2, slave3))),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1423,8 +1466,8 @@ public class SuperConsoleEventBusListenerTest {
             "Distributed Build: finished in 1.6 sec (100%) remote status: finished_successfully, "
                 + "80/80 jobs, 3.3% cache miss, 1 [3.3%] cache errors, 1 upload errors"
                 + "; local status: downloading",
-            formatCacheStatsLine(true, 0, 0f, 100f),
-            "Sync Build... 1.6 sec (20%) 1/5 jobs, 1 updated",
+            formatCacheStatsLine(true, 0, 0f, 50f),
+            "Sync Build... 1.6 sec (20%) 1/5 jobs, 2 updated",
             " - IDLE"));
 
     eventBus.postWithoutConfiguring(
@@ -1438,7 +1481,7 @@ public class SuperConsoleEventBusListenerTest {
         "Distributed Build: finished in 1.6 sec (100%) remote status: finished_successfully, "
             + "80/80 jobs, 3.3% cache miss, 1 [3.3%] cache errors, 1 upload errors"
             + "; local status: downloading";
-    String buildingLine = "Sync Build: finished in 1.6 sec (100%) 1/5 jobs, 1 updated";
+    String buildingLine = "Sync Build: finished in 1.6 sec (100%) 1/5 jobs, 2 updated";
     String totalLine = "  Total time: 1.8 sec. Build successful.";
     timeMillis += 100;
     validateConsole(
@@ -1449,7 +1492,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             actionGraphLine,
             distbuildLine,
-            formatCacheStatsLine(false, 0, 0f, 100f),
+            formatCacheStatsLine(false, 0, 0f, 50f),
             buildingLine,
             totalLine));
 
@@ -1470,7 +1513,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             actionGraphLine,
             distbuildLine,
-            formatCacheStatsLine(false, 0, 0f, 100f),
+            formatCacheStatsLine(false, 0, 0f, 50f),
             buildingLine,
             totalLine),
         ImmutableList.of(SEVERE_MESSAGE));
@@ -1739,6 +1782,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -2053,6 +2097,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -2280,6 +2325,7 @@ public class SuperConsoleEventBusListenerTest {
             buildId,
             false,
             Optional.empty(),
+            ImmutableSet.of(),
             ImmutableList.of());
     listener.register(eventBus);
 
@@ -2371,6 +2417,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
                 UploadToCacheResultType.UNCACHEABLE,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -2727,6 +2774,7 @@ public class SuperConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             600L,
             TimeUnit.MILLISECONDS,
@@ -2760,46 +2808,6 @@ public class SuperConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
     validateConsole(listener, renderingConsole, 0L, ImmutableList.of());
-  }
-
-  @Test
-  public void testParsingStatus() {
-    Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
-    TestRenderingConsole renderingConsole = new TestRenderingConsole(fakeClock, new TestConsole());
-    SuperConsoleEventBusListener listener =
-        createSuperConsole(fakeClock, eventBus, renderingConsole);
-
-    // new daemon instance & action graph cache miss
-    eventBus.post(DaemonEvent.newDaemonInstance());
-    assertEquals("daemonNewInstance", listener.getParsingStatus().get());
-    eventBus.post(ActionGraphEvent.Cache.miss(/* cacheWasEmpty */ true));
-    assertEquals("daemonNewInstance", listener.getParsingStatus().get());
-
-    // overflow scenario
-    String overflowMessage = "and if you go chasing rabbits";
-    eventBus.post(WatchmanStatusEvent.overflow(overflowMessage));
-    assertEquals("watchmanOverflow: " + overflowMessage, listener.getParsingStatus().get());
-
-    // file added scenario
-    eventBus.post(WatchmanStatusEvent.fileCreation("and you know you're going to fall"));
-    assertEquals("watchmanFileCreation", listener.getParsingStatus().get());
-
-    // file removed scenario
-    eventBus.post(WatchmanStatusEvent.fileDeletion("Tell 'em a hookah-smoking"));
-    assertEquals("watchmanFileDeletion", listener.getParsingStatus().get());
-
-    // symlink invalidation scenario
-    eventBus.post(ParsingEvent.symlinkInvalidation("caterpillar has given you the call"));
-    assertEquals("symlinkInvalidation", listener.getParsingStatus().get());
-
-    // environmental change scenario
-    eventBus.post(ParsingEvent.environmentalChange("WHITE_RABBIT=1"));
-    assertEquals("envVariableChange", listener.getParsingStatus().get());
-
-    // action graph cache hit scenario
-    eventBus.post(ActionGraphEvent.Cache.hit());
-    assertEquals("actionGraphCacheHit", listener.getParsingStatus().get());
   }
 
   @Test
@@ -3247,7 +3255,7 @@ public class SuperConsoleEventBusListenerTest {
 
   private SuperConsoleEventBusListener createSuperConsole(
       Clock clock, BuckEventBus eventBus, TestRenderingConsole console) {
-    return createSuperConsole(clock, eventBus, false, Optional.empty(), console);
+    return createSuperConsole(clock, eventBus, false, Optional.empty(), ImmutableSet.of(), console);
   }
 
   private SuperConsoleEventBusListener createSuperConsole(
@@ -3255,6 +3263,7 @@ public class SuperConsoleEventBusListenerTest {
       BuckEventBus eventBus,
       boolean printBuildId,
       Optional<String> buildDetailsTemplate,
+      ImmutableSet<String> buildDetailsCommands,
       TestRenderingConsole console) {
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -3274,6 +3283,7 @@ public class SuperConsoleEventBusListenerTest {
             buildId,
             printBuildId,
             buildDetailsTemplate,
+            buildDetailsCommands,
             ImmutableList.of());
     listener.register(eventBus);
     return listener;

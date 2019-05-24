@@ -18,6 +18,7 @@ package com.facebook.buck.swift;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -43,7 +44,6 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -82,6 +82,9 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final Path moduleObjectPath;
   private final ImmutableList<Path> objectPaths;
   private final Optional<Path> swiftFileListPath;
+
+  @AddToRuleKey private final boolean shouldEmitSwiftdocs;
+  private final Path swiftdocPath;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final Optional<String> version;
@@ -148,6 +151,9 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                             getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt")))
             : Optional.empty();
 
+    this.shouldEmitSwiftdocs = swiftBuckConfig.getEmitSwiftdocs();
+    this.swiftdocPath = outputPath.resolve(escapedModuleName + ".swiftdoc");
+
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.version = version;
     this.compilerFlags =
@@ -199,8 +205,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(
             Iterables.cycle(INCLUDE_FLAG),
-            getBuildDeps()
-                .stream()
+            getBuildDeps().stream()
                 .filter(SwiftCompile.class::isInstance)
                 .map(BuildRule::getSourcePathToOutput)
                 .map(input -> resolver.getAbsolutePath(input).toString())
@@ -225,6 +230,10 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         headerPath.toString(),
         "-o",
         objectFilePath.toString());
+
+    if (shouldEmitSwiftdocs) {
+      compilerCommand.add("-emit-module-doc", "-emit-module-doc-path", swiftdocPath.toString());
+    }
 
     version.ifPresent(
         v -> {
@@ -416,8 +425,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   ImmutableList<Arg> getFileListLinkArg() {
     return FileListableLinkerInputArg.from(
-        objectPaths
-            .stream()
+        objectPaths.stream()
             .map(
                 objectPath ->
                     SourcePathArg.of(
@@ -433,8 +441,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   /** @return List of {@link SourcePath} to the output object file(s) (i.e., .o file) */
   public ImmutableList<SourcePath> getObjectPaths() {
     // Ensures that users of the object path can depend on this build target
-    return objectPaths
-        .stream()
+    return objectPaths.stream()
         .map(objectPath -> ExplicitBuildTargetSourcePath.of(getBuildTarget(), objectPath))
         .collect(ImmutableList.toImmutableList());
   }

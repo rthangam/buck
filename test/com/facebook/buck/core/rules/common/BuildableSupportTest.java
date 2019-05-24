@@ -19,13 +19,12 @@ package com.facebook.buck.core.rules.common;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -48,7 +47,7 @@ import org.junit.Test;
 public class BuildableSupportTest {
   @Test
   public void testDeriveDepsFromAddsToRuleKeys() {
-    BuildTarget target = ImmutableBuildTarget.of(Paths.get("some"), "//some", "name");
+    BuildTarget target = BuildTargetFactory.newInstance(Paths.get("some"), "//some", "name");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildRule rule1 = makeRule(target, filesystem, "rule1");
@@ -58,7 +57,6 @@ public class BuildableSupportTest {
     BuildRule rule5 = makeRule(target, filesystem, "rule5");
     ImmutableSet<BuildRule> rules = ImmutableSet.of(rule1, rule2, rule3, rule4, rule5);
     rules.forEach(graphBuilder::addToIndex);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     AddsToRuleKey rule =
         new AddsToRuleKey() {
@@ -78,7 +76,7 @@ public class BuildableSupportTest {
 
     MoreAsserts.assertSetEquals(
         rules,
-        BuildableSupport.deriveDeps(rule, ruleFinder).collect(ImmutableSet.toImmutableSet()));
+        BuildableSupport.deriveDeps(rule, graphBuilder).collect(ImmutableSet.toImmutableSet()));
   }
 
   @Test

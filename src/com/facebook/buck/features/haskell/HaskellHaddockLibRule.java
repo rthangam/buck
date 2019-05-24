@@ -18,6 +18,7 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -40,9 +41,11 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
@@ -53,10 +56,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
@@ -188,6 +193,10 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
     return getOutputDir().resolve(name + "-haddock-interface");
   }
 
+  private Path getHaddockOuptutDir() {
+    return getOutputDir().resolve("ALL");
+  }
+
   private Path getOutputDir() {
     Path p = BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
     // Haddock doesn't like commas in its file-paths for --read-interface
@@ -195,13 +204,20 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
     return Paths.get(p.toString().replaceAll(",", "-"));
   }
 
+  private Path getArgsfile() {
+    Path scratchDir =
+        BuildTargetPaths.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s");
+    return getProjectFilesystem().resolve(scratchDir).resolve("haddock.argsfile");
+  }
+
   public ImmutableSet<SourcePath> getInterfaces() {
     SourcePath sp = ExplicitBuildTargetSourcePath.of(getBuildTarget(), getInterface());
     return ImmutableSet.of(sp);
   }
 
-  public ImmutableSet<SourcePath> getOutputDirs() {
-    return ImmutableSet.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), getOutputDir()));
+  public ImmutableSet<SourcePath> getHaddockOutputDirs() {
+    SourcePath sp = ExplicitBuildTargetSourcePath.of(getBuildTarget(), getHaddockOuptutDir());
+    return ImmutableSet.of(sp);
   }
 
   @Override
@@ -223,6 +239,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), dir)));
+    steps.add(new WriteArgsfileStep(context));
     steps.add(new HaddockStep(getProjectFilesystem().getRootPath(), context));
 
     buildableContext.recordArtifact(dir);
@@ -239,6 +256,44 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
             /* pch */ Optional.empty());
     return MoreIterables.zipAndConcat(
         Iterables.cycle("-optP"), Arg.stringify(cxxToolFlags.getAllFlags(), resolver));
+  }
+
+  private Iterable<String> getSourceArguments(SourcePathResolver resolver) {
+    return srcs.getSourcePaths().stream()
+        .map(resolver::getAbsolutePath)
+        .map(Object::toString)
+        .collect(Collectors.toList());
+  }
+
+  private class WriteArgsfileStep implements Step {
+
+    private BuildContext buildContext;
+
+    public WriteArgsfileStep(BuildContext buildContext) {
+      this.buildContext = buildContext;
+    }
+
+    @Override
+    public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      getProjectFilesystem().createParentDirs(getArgsfile());
+      getProjectFilesystem()
+          .writeLinesToPath(
+              Iterables.transform(
+                  getSourceArguments(buildContext.getSourcePathResolver()),
+                  Escaper.ARGFILE_ESCAPER::apply),
+              getArgsfile());
+      return StepExecutionResults.SUCCESS;
+    }
+
+    @Override
+    public String getShortName() {
+      return "write-haddock-argsfile";
+    }
+
+    @Override
+    public String getDescription(ExecutionContext context) {
+      return "Write argsfile for haddock";
+    }
   }
 
   private class HaddockStep extends ShellStep {
@@ -269,7 +324,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
 
     protected ImmutableList<String> getOutputDirFlags() {
       ImmutableList.Builder<String> flags = ImmutableList.builder();
-      flags.add("--odir", getProjectFilesystem().resolve(getOutputDir()).toString());
+      flags.add("--odir", getProjectFilesystem().resolve(getHaddockOuptutDir()).toString());
       return flags.build();
     }
 
@@ -320,7 +375,9 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
       cmdArgs.add("-hidir", getProjectFilesystem().resolve(getInterfaceDir()).toString());
       cmdArgs.add("-stubdir", getProjectFilesystem().resolve(getStubDir()).toString());
 
-      return ImmutableList.<String>builder()
+      ImmutableList.Builder<String> builder = ImmutableList.builder();
+
+      builder
           .addAll(haddockTool.getCommandPrefix(resolver))
           .addAll(getRenderFlags())
           .add("--no-tmp-comp-dir")
@@ -336,14 +393,15 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
           .addAll(MoreIterables.zipAndConcat(Iterables.cycle("--optghc"), cmdArgs.build()))
           .add("--package-name", packageInfo.getName())
           .add("--package-version", packageInfo.getVersion() + ".0")
-          .addAll(
-              srcs.getSourcePaths()
-                  .stream()
-                  .map(resolver::getRelativePath)
-                  .map(Object::toString)
-                  .iterator())
-          .addAll(getOutputDirFlags())
-          .build();
+          .addAll(getOutputDirFlags());
+
+      if (platform.shouldUseArgsfile()) {
+        builder.add("@" + getArgsfile());
+      } else {
+        builder.addAll(getSourceArguments(resolver));
+      }
+
+      return builder.build();
     }
 
     @Override

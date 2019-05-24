@@ -15,6 +15,7 @@
  */
 package com.facebook.buck.query;
 
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
@@ -29,7 +30,7 @@ import java.util.Set;
  *
  * <pre>expr ::= TESTSOF '(' expr ')'</pre>
  */
-public class TestsOfFunction implements QueryFunction {
+public class TestsOfFunction<T extends QueryTarget> implements QueryFunction<T, T> {
 
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION);
@@ -52,12 +53,12 @@ public class TestsOfFunction implements QueryFunction {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> eval(
-      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+  public ImmutableSet<T> eval(
+      QueryEvaluator<T> evaluator, QueryEnvironment<T> env, ImmutableList<Argument<T>> args)
       throws QueryException {
-    Set<QueryTarget> targets = evaluator.eval(args.get(0).getExpression(), env);
-    ImmutableSet.Builder<QueryTarget> tests = new ImmutableSet.Builder<>();
-    for (QueryTarget target : targets) {
+    Set<T> targets = evaluator.eval(args.get(0).getExpression(), env);
+    ImmutableSet.Builder<T> tests = new ImmutableSet.Builder<>();
+    for (T target : targets) {
       tests.addAll(env.getTestsForTarget(target));
     }
     return tests.build();

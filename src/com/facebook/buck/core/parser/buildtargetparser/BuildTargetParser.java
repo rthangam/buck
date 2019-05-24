@@ -21,9 +21,10 @@ import com.facebook.buck.core.cell.UnknownCellException;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTargetView;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Interner;
@@ -34,7 +35,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-public class BuildTargetParser {
+/**
+ * Use {@link com.facebook.buck.core.parser.buildtargetpattern.UnconfiguredBuildTargetParser
+ * instead} which is stateless and environment-agnostic
+ */
+@Deprecated
+class BuildTargetParser {
 
   /** The BuildTargetParser is stateless, so this single instance can be shared. */
   public static final BuildTargetParser INSTANCE = new BuildTargetParser();
@@ -43,23 +49,13 @@ public class BuildTargetParser {
   private static final String BUILD_RULE_SEPARATOR = ":";
   private static final Splitter BUILD_RULE_SEPARATOR_SPLITTER = Splitter.on(BUILD_RULE_SEPARATOR);
 
-  private final Interner<BuildTarget> flavoredTargetCache = Interners.newWeakInterner();
+  private final Interner<UnconfiguredBuildTargetView> flavoredTargetCache =
+      Interners.newWeakInterner();
 
   private final FlavorParser flavorParser = new FlavorParser();
 
   private BuildTargetParser() {
     // this is stateless. There's no need to do anything other than grab the instance needed.
-  }
-
-  /**
-   * Creates a {@link BuildTarget} with the given fully qualified target name.
-   *
-   * @param buildTargetName a fully-qualified build target name.
-   * @see #parse(CellPathResolver, String, String, boolean)
-   */
-  public BuildTarget parseFullyQualified(
-      CellPathResolver cellPathResolver, String buildTargetName) {
-    return parse(cellPathResolver, buildTargetName, "", false);
   }
 
   /**
@@ -75,7 +71,7 @@ public class BuildTargetParser {
    * @param allowWildCards whether to allow a colon at the end of the target name. This is used when
    *     parsing target name patterns.
    */
-  public BuildTarget parse(
+  UnconfiguredBuildTargetView parse(
       CellPathResolver cellPathResolver,
       String buildTargetName,
       String buildTargetBaseName,
@@ -131,22 +127,15 @@ public class BuildTargetParser {
           String.format("When parsing %s: %s", buildTargetName, e.getHumanReadableErrorMessage()));
     }
 
-    ImmutableUnflavoredBuildTarget.Builder unflavoredBuilder =
-        ImmutableUnflavoredBuildTarget.builder()
-            .setBaseName(baseName)
-            .setShortName(shortName)
-            // Set the cell path correctly. Because the cellNames comes from the owning cell we can
-            // be sure that if this doesn't throw an exception the target cell is visible to the
-            // owning cell.
-            .setCellPath(cellPath)
-            // We are setting the cell name so we can print it later
-            .setCell(cellPathResolver.getCanonicalCellName(cellPath));
-
-    UnflavoredBuildTarget unflavoredBuildTarget = unflavoredBuilder.build();
+    // Set the cell path correctly. Because the cellNames comes from the owning cell we can
+    // be sure that if this doesn't throw an exception the target cell is visible to the
+    // owning cell.
+    UnflavoredBuildTargetView unflavoredBuildTargetView =
+        ImmutableUnflavoredBuildTargetView.of(
+            cellPath, cellPathResolver.getCanonicalCellName(cellPath), baseName, shortName);
     return flavoredTargetCache.intern(
-        ImmutableBuildTarget.of(
-            unflavoredBuildTarget,
-            RichStream.from(flavorNames).map(InternalFlavor::of).toImmutableSet()));
+        ImmutableUnconfiguredBuildTargetView.of(
+            unflavoredBuildTargetView, RichStream.from(flavorNames).map(InternalFlavor::of)));
   }
 
   protected static void checkBaseName(String baseName, String buildTargetName) {

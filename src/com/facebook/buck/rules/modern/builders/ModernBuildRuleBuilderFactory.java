@@ -19,6 +19,7 @@ package com.facebook.buck.rules.modern.builders;
 import com.facebook.buck.core.build.engine.BuildStrategyContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -29,8 +30,8 @@ import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.remoteexecution.factory.RemoteExecutionClientsFactory;
 import com.facebook.buck.remoteexecution.interfaces.MetadataProvider;
 import com.facebook.buck.rules.modern.config.HybridLocalBuildStrategyConfig;
+import com.facebook.buck.rules.modern.config.ModernBuildRuleBuildStrategy;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleStrategyConfig;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.util.concurrent.Futures;
 import java.io.IOException;
@@ -50,16 +51,18 @@ public class ModernBuildRuleBuilderFactory {
       CellPathResolver cellResolver,
       FileHashLoader hashLoader,
       BuckEventBus eventBus,
-      MetadataProvider metadataProvider) {
+      MetadataProvider metadataProvider,
+      boolean whitelistedForRemoteExecution) {
+    ModernBuildRuleBuildStrategy strategy;
     try {
       RemoteExecutionClientsFactory remoteExecutionFactory =
           new RemoteExecutionClientsFactory(remoteExecutionConfig);
-      switch (config.getBuildStrategy()) {
+      strategy = config.getBuildStrategy(whitelistedForRemoteExecution);
+      switch (strategy) {
         case NONE:
           return Optional.empty();
         case DEBUG_RECONSTRUCT:
-          return Optional.of(
-              createReconstructing(new SourcePathRuleFinder(resolver), cellResolver, rootCell));
+          return Optional.of(createReconstructing(resolver, cellResolver, rootCell));
         case DEBUG_PASSTHROUGH:
           return Optional.of(createPassthrough());
         case HYBRID_LOCAL:
@@ -72,26 +75,23 @@ public class ModernBuildRuleBuilderFactory {
                   cellResolver,
                   hashLoader,
                   eventBus,
-                  metadataProvider));
+                  metadataProvider,
+                  whitelistedForRemoteExecution));
         case REMOTE:
-        case GRPC_REMOTE:
-        case DEBUG_GRPC_SERVICE_IN_PROCESS:
-        case DEBUG_ISOLATED_OUT_OF_PROCESS_GRPC:
           return Optional.of(
               RemoteExecutionStrategy.createRemoteExecutionStrategy(
                   eventBus,
                   remoteExecutionConfig.getStrategyConfig(),
                   remoteExecutionFactory.create(eventBus, metadataProvider),
-                  new SourcePathRuleFinder(resolver),
-                  cellResolver,
+                  resolver,
                   rootCell,
-                  hashLoader::get));
+                  hashLoader::get,
+                  metadataProvider));
       }
     } catch (IOException e) {
       throw new BuckUncheckedExecutionException(e, "When creating MBR build strategy.");
     }
-    throw new IllegalStateException(
-        "Unrecognized build strategy " + config.getBuildStrategy() + ".");
+    throw new IllegalStateException("Unrecognized build strategy " + strategy + ".");
   }
 
   private static BuildRuleStrategy createHybridLocal(
@@ -102,7 +102,8 @@ public class ModernBuildRuleBuilderFactory {
       CellPathResolver cellResolver,
       FileHashLoader hashLoader,
       BuckEventBus eventBus,
-      MetadataProvider metadataProvider) {
+      MetadataProvider metadataProvider,
+      boolean whitelistedForRemoteExecution) {
     BuildRuleStrategy delegate =
         getBuildStrategy(
                 hybridLocalConfig.getDelegateConfig(),
@@ -112,7 +113,8 @@ public class ModernBuildRuleBuilderFactory {
                 cellResolver,
                 hashLoader,
                 eventBus,
-                metadataProvider)
+                metadataProvider,
+                whitelistedForRemoteExecution)
             .orElseThrow(
                 () -> new HumanReadableException("Delegate config configured incorrectly."));
     return new HybridLocalStrategy(

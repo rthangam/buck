@@ -16,6 +16,7 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.TypeCoercer.Traversal;
 import com.facebook.buck.rules.macros.EnvMacro;
@@ -51,8 +52,8 @@ public class EnvMacroTypeCoercer implements MacroTypeCoercer<EnvMacro> {
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
-      ImmutableList<String> args)
-      throws CoerceFailedException {
+      TargetConfiguration targetConfiguration,
+      ImmutableList<String> args) {
     Preconditions.checkState(
         args.size() == 1, String.format("expected a single argument: %s", args));
     return EnvMacro.of(args.get(0));

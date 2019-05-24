@@ -25,6 +25,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
@@ -73,9 +74,11 @@ public class CleanCommand extends AbstractCommand {
     pathsToDelete.add(projectFilesystem.getBuckPaths().getGenDir());
     pathsToDelete.add(projectFilesystem.getBuckPaths().getTrashDir());
 
+    CleanCommandBuckConfig buckConfig = cell.getBuckConfig().getView(CleanCommandBuckConfig.class);
+
     // Remove dir cache.
     if (!keepCache) {
-      ImmutableList<String> excludedCaches = cell.getBuckConfig().getCleanExcludedCaches();
+      ImmutableList<String> excludedCaches = buckConfig.getCleanExcludedCaches();
       pathsToDelete.add(projectFilesystem.getBuckPaths().getCacheDir());
       for (DirCacheEntry dirCacheEntry :
           ArtifactCacheBuckConfig.of(cell.getBuckConfig()).getCacheEntries().getDirCacheEntries()) {
@@ -87,7 +90,7 @@ public class CleanCommand extends AbstractCommand {
     }
 
     // Clean out any additional directories specified via config setting.
-    for (String subPath : cell.getBuckConfig().getCleanAdditionalPaths()) {
+    for (String subPath : buckConfig.getCleanAdditionalPaths()) {
       pathsToDelete.add(projectFilesystem.getPath(subPath));
     }
 
@@ -107,6 +110,14 @@ public class CleanCommand extends AbstractCommand {
         try {
           projectFilesystem.deleteRecursivelyIfExists(path);
           LOG.debug("Removed path: %s", path);
+        } catch (AccessDeniedException e) {
+          params
+              .getConsole()
+              .printErrorText(
+                  "Failed to remove path %s due to AccessDeniedException.%n"
+                      + "Make sure that you (not root) own all the contents inside buck-out",
+                  path);
+          LOG.warn(e, "Failed to remove path %s due to permissions issue", path);
         } catch (IOException e) {
           LOG.warn(e, "Failed to remove path %s", path);
         }

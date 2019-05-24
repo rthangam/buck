@@ -30,13 +30,11 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.SortedSet;
 
 class AndroidBinaryInstallGraphEnhancer {
   static final Flavor INSTALL_FLAVOR = InternalFlavor.of("install");
@@ -84,7 +82,6 @@ class AndroidBinaryInstallGraphEnhancer {
     ExopackageDeviceDirectoryLister directoryLister =
         new ExopackageDeviceDirectoryLister(
             buildTarget.withFlavors(DIRECTORY_LISTING_FLAVOR), projectFilesystem);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ExopackageInfo exopackageInfo = apkInfo.getExopackageInfo().get();
     ImmutableList.Builder<BuildRule> finisherDeps = ImmutableList.builder();
     if (exopackageInfo.getDexInfo().isPresent()
@@ -100,7 +97,7 @@ class AndroidBinaryInstallGraphEnhancer {
           new ExopackageFilesInstaller(
               buildTarget.withFlavors(EXO_FILE_INSTALL_FLAVOR),
               projectFilesystem,
-              ruleFinder,
+              graphBuilder,
               directoryLister.getSourcePathToOutput(),
               apkInfo.getManifestPath(),
               filteredExopackageInfo);
@@ -111,7 +108,7 @@ class AndroidBinaryInstallGraphEnhancer {
       List<BuildRule> resourceInstallRules =
           createResourceInstallRules(
               exopackageInfo.getResourcesInfo().get(),
-              ruleFinder,
+              graphBuilder,
               apkInfo.getManifestPath(),
               directoryLister.getSourcePathToOutput());
       resourceInstallRules.forEach(graphBuilder::addToIndex);
@@ -122,7 +119,7 @@ class AndroidBinaryInstallGraphEnhancer {
         new ExopackageInstallFinisher(
             buildTarget,
             projectFilesystem,
-            ruleFinder,
+            graphBuilder,
             apkInfo,
             directoryLister,
             finisherDeps.build());
@@ -141,9 +138,7 @@ class AndroidBinaryInstallGraphEnhancer {
     // and so we don't want a single rule to generate a bunch of resource files and then take up a
     // bunch of build threads all waiting on each other.
     Multimap<BuildRule, ExopackagePathAndHash> creatorMappedPaths =
-        resourcesInfo
-            .getResourcesPaths()
-            .stream()
+        resourcesInfo.getResourcesPaths().stream()
             .collect(
                 ImmutableListMultimap.toImmutableListMultimap(
                     (ExopackagePathAndHash pathAndHash) ->
@@ -173,12 +168,6 @@ class AndroidBinaryInstallGraphEnhancer {
   }
 
   private void enhanceForLegacyInstall(ActionGraphBuilder graphBuilder) {
-    graphBuilder.addToIndex(
-        new NoopBuildRule(buildTarget, projectFilesystem) {
-          @Override
-          public SortedSet<BuildRule> getBuildDeps() {
-            return ImmutableSortedSet.of();
-          }
-        });
+    graphBuilder.addToIndex(new NoopBuildRule(buildTarget, projectFilesystem));
   }
 }

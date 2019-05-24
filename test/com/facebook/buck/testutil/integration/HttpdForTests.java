@@ -44,6 +44,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.servlet.http.HttpServletRequest;
@@ -111,15 +112,19 @@ public class HttpdForTests implements AutoCloseable {
 
     String password = "super_sekret";
 
-    X509Certificate caCert = ClientCertificateHandler.parseCertificate(caPath);
-    X509Certificate serverCert = ClientCertificateHandler.parseCertificate(certificatePath);
-    PrivateKey privateKey = ClientCertificateHandler.parsePrivateKey(keyPath, serverCert);
+    ImmutableList<X509Certificate> caCerts =
+        ClientCertificateHandler.parseCertificates(Optional.of(caPath), true);
+    X509Certificate serverCert =
+        ClientCertificateHandler.parseCertificate(Optional.of(certificatePath), true).get();
+    PrivateKey privateKey =
+        ClientCertificateHandler.parsePrivateKey(Optional.of(keyPath), serverCert, true).get();
 
     KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
     ks.load(null, password.toCharArray());
-    ks.setKeyEntry(
-        "private", privateKey, password.toCharArray(), new Certificate[] {serverCert, caCert});
-    ks.setCertificateEntry("ca", caCert);
+    for (int i = 0; i < caCerts.size(); i++) {
+      ks.setCertificateEntry(String.format("ca%d", i), caCerts.get(i));
+    }
+    ks.setKeyEntry("private", privateKey, password.toCharArray(), new Certificate[] {serverCert});
 
     SslContextFactory sslFactory = new SslContextFactory();
     sslFactory.setKeyStore(ks);
@@ -233,8 +238,7 @@ public class HttpdForTests implements AutoCloseable {
       }
       if (iface.isLoopback()) {
         candidateLoopbacks.addAll(
-            getInetAddresses(iface)
-                .stream()
+            getInetAddresses(iface).stream()
                 .filter(i -> allowScopedLinkLocal || !i.getHostAddress().contains("%"))
                 .collect(ImmutableSet.toImmutableSet()));
       } else {

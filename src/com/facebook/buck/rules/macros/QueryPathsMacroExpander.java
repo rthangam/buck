@@ -28,7 +28,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.Escaper;
 import com.google.common.collect.ImmutableList;
 import java.util.Objects;
@@ -49,16 +48,6 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
   }
 
   @Override
-  QueryPathsMacro fromQuery(Query query) {
-    return QueryPathsMacro.of(query);
-  }
-
-  @Override
-  boolean detectsTargetGraphOnlyDeps() {
-    return false;
-  }
-
-  @Override
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
@@ -66,9 +55,7 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       QueryPathsMacro input,
       QueryResults precomputedWork) {
     return new QueriedPathsArg(
-        precomputedWork
-            .results
-            .stream()
+        precomputedWork.results.stream()
             .map(
                 queryTarget -> {
                   // What we do depends on the input.
@@ -97,8 +84,7 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       // TODO(cjhopman): The sorted() call could feasibly (though unlikely) return different
       // ordering in different contexts.
       consumer.accept(
-          queriedPaths
-              .stream()
+          queriedPaths.stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
               .map(Escaper::escapeAsShellString)

@@ -106,12 +106,12 @@ public class ParseStatsTracker {
 
   private void handleStartedEvent(AbstractBuckEvent started) {
     parseStarted.add(started);
-    parseStartedTime = Math.min(parseStartedTime, started.getTimestamp());
+    parseStartedTime = Math.min(parseStartedTime, started.getTimestampMillis());
   }
 
   private void handleFinishedEvent(AbstractBuckEvent finished) {
     parseFinished.add(finished);
-    parseFinishedTime = Math.max(parseFinishedTime, finished.getTimestamp());
+    parseFinishedTime = Math.max(parseFinishedTime, finished.getTimestampMillis());
 
     // TODO(cjhopman): This is only correct if no parses can start after this point.
     if (parseFinished.size() == parseStarted.size()) {

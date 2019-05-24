@@ -18,10 +18,12 @@ package com.facebook.buck.cli;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildFileTree;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.RichStream;
@@ -150,19 +152,29 @@ final class OwnersReport {
     }
   }
 
-  static Builder builder(Cell rootCell, Parser parser, PerBuildState parserState) {
-    return new Builder(rootCell, parser, parserState);
+  static Builder builder(
+      Cell rootCell,
+      Parser parser,
+      PerBuildState parserState,
+      TargetConfiguration targetConfiguration) {
+    return new Builder(rootCell, parser, parserState, targetConfiguration);
   }
 
   static final class Builder {
     private final Cell rootCell;
     private final Parser parser;
     private final PerBuildState parserState;
+    private final TargetConfiguration targetConfiguration;
 
-    private Builder(Cell rootCell, Parser parser, PerBuildState parserState) {
+    private Builder(
+        Cell rootCell,
+        Parser parser,
+        PerBuildState parserState,
+        TargetConfiguration targetConfiguration) {
       this.rootCell = rootCell;
       this.parser = parser;
       this.parserState = parserState;
+      this.targetConfiguration = targetConfiguration;
     }
 
     private OwnersReport getReportForBasePath(
@@ -170,26 +182,31 @@ final class OwnersReport {
         Cell cell,
         Path basePath,
         Path cellRelativePath) {
-      Path buckFile = cell.getFilesystem().resolve(basePath).resolve(cell.getBuildFileName());
+      Path buckFile =
+          cell.getFilesystem()
+              .resolve(basePath)
+              .resolve(cell.getBuckConfigView(ParserConfig.class).getBuildFileName());
       ImmutableList<TargetNode<?>> targetNodes =
           map.computeIfAbsent(
               buckFile,
               basePath1 -> {
                 try {
-                  return parser.getAllTargetNodes(parserState, cell, basePath1);
+                  return parser.getAllTargetNodesWithTargetCompatibilityFiltering(
+                      parserState, cell, basePath1, targetConfiguration);
                 } catch (BuildFileParseException e) {
                   throw new HumanReadableException(e);
                 }
               });
-      return targetNodes
-          .stream()
+      return targetNodes.stream()
           .map(targetNode -> generateOwnersReport(cell, targetNode, cellRelativePath.toString()))
           .reduce(OwnersReport.emptyReport(), OwnersReport::updatedWith);
     }
 
     private ImmutableSet<Path> getAllBasePathsForPath(
         BuildFileTree buildFileTree, Path cellRelativePath) {
-      if (rootCell.isEnforcingBuckPackageBoundaries(cellRelativePath)) {
+      if (rootCell
+          .getBuckConfigView(ParserConfig.class)
+          .isEnforcingBuckPackageBoundaries(cellRelativePath)) {
         return buildFileTree
             .getBasePathOfAncestorTarget(cellRelativePath)
             .map(ImmutableSet::of)
@@ -278,8 +295,7 @@ final class OwnersReport {
             continue;
           }
           report =
-              basePaths
-                  .stream()
+              basePaths.stream()
                   .map(basePath -> getReportForBasePath(map, cell, basePath, cellRelativePath))
                   .reduce(report, OwnersReport::updatedWith);
         }

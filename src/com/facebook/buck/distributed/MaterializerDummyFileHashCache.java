@@ -17,11 +17,11 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
@@ -391,10 +391,11 @@ class MaterializerDummyFileHashCache implements ProjectFileHashCache {
   }
 
   @Override
-  public HashCode get(ArchiveMemberPath archiveMemberRelPath) throws IOException {
-    materializeIfNeededAsync(archiveMemberRelPath.getArchivePath());
+  public HashCode getForArchiveMember(Path relativeArchivePath, Path memberPath)
+      throws IOException {
+    materializeIfNeededAsync(relativeArchivePath);
     if (getMaterializationFuturesAsList().isDone()) {
-      return delegate.get(archiveMemberRelPath);
+      return delegate.getForArchiveMember(relativeArchivePath, memberPath);
     } else {
       // Return a fake. This class is not meant for actually computing HashCodes.
       return HashCode.fromInt(0);

@@ -118,6 +118,7 @@ public class SkylarkNativeModule {
             name = "include",
             type = SkylarkList.class,
             generic1 = String.class,
+            named = true,
             doc = "a list of strings specifying patterns of files to include."),
         @Param(
             name = "exclude",
@@ -167,9 +168,7 @@ public class SkylarkNativeModule {
     try {
       return SkylarkList.MutableList.copyOf(
           env,
-          parseContext
-              .getPackageContext()
-              .getGlobber()
+          parseContext.getPackageContext().getGlobber()
               .run(
                   Type.STRING_LIST.convert(include, "'glob' include"),
                   Type.STRING_LIST.convert(exclude, "'glob' exclude"),
@@ -289,6 +288,7 @@ public class SkylarkNativeModule {
             name = "default",
             type = Object.class,
             defaultValue = "None",
+            noneable = true,
             doc = "if no implicit symbol with the requested name exists, return this value."),
       })
   public @Nullable Object implicitPackageSymbol(

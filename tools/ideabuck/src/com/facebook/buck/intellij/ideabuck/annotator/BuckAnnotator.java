@@ -20,17 +20,16 @@ import com.facebook.buck.intellij.ideabuck.api.BuckCellManager;
 import com.facebook.buck.intellij.ideabuck.api.BuckTarget;
 import com.facebook.buck.intellij.ideabuck.api.BuckTargetLocator;
 import com.facebook.buck.intellij.ideabuck.api.BuckTargetPattern;
-import com.facebook.buck.intellij.ideabuck.external.IntellijBuckAction;
-import com.facebook.buck.intellij.ideabuck.file.BuckFileType;
 import com.facebook.buck.intellij.ideabuck.highlight.BuckSyntaxHighlighter;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionName;
+import com.facebook.buck.intellij.ideabuck.lang.BuckFileType;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadCall;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPropertyLvalue;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckSingleExpression;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckParameter;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckSimpleExpression;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckString;
+import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
@@ -48,34 +47,35 @@ public class BuckAnnotator implements Annotator {
 
   @Override
   public void annotate(@NotNull PsiElement psiElement, @NotNull AnnotationHolder annotationHolder) {
-    if (psiElement instanceof BuckFunctionName) {
-      annotateFunctionName((BuckFunctionName) psiElement, annotationHolder);
-    } else if (psiElement instanceof BuckPropertyLvalue) {
-      annotateBuckPropertyLvalue((BuckPropertyLvalue) psiElement, annotationHolder);
+    if (psiElement instanceof BuckArgument) {
+      annotateBuckArgument((BuckArgument) psiElement, annotationHolder);
+    } else if (psiElement instanceof BuckParameter) {
+      annotateBuckParameter((BuckParameter) psiElement, annotationHolder);
     } else if (psiElement instanceof BuckLoadCall) {
       annotateLoadCall((BuckLoadCall) psiElement, annotationHolder);
-    } else if (psiElement instanceof BuckSingleExpression) {
-      annotateSingleExpression((BuckSingleExpression) psiElement, annotationHolder);
+    } else if (psiElement instanceof BuckSimpleExpression) {
+      annotateSimpleExpression((BuckSimpleExpression) psiElement, annotationHolder);
     }
   }
 
-  private void annotateFunctionName(
-      BuckFunctionName functionName, AnnotationHolder annotationHolder) {
-    Optional.of(functionName)
-        .map(BuckFunctionName::getIdentifier)
+  /** Colorize named arguments in function invocations. */
+  private void annotateBuckArgument(BuckArgument argument, AnnotationHolder annotationHolder) {
+    Optional.ofNullable(argument.getIdentifier())
         .ifPresent(
             identifier -> {
-              annotationHolder
-                  .createInfoAnnotation(functionName.getIdentifier(), null)
-                  .setTextAttributes(BuckSyntaxHighlighter.BUCK_FUNCTION_NAME);
+              Annotation annotation = annotationHolder.createInfoAnnotation(identifier, null);
+              annotation.setTextAttributes(BuckSyntaxHighlighter.BUCK_PROPERTY_LVALUE);
             });
   }
 
-  private void annotateBuckPropertyLvalue(
-      BuckPropertyLvalue propertyLvalue, AnnotationHolder annotationHolder) {
-    Annotation annotation =
-        annotationHolder.createInfoAnnotation(propertyLvalue.getIdentifier(), null);
-    annotation.setTextAttributes(BuckSyntaxHighlighter.BUCK_PROPERTY_LVALUE);
+  /** Colorize named parameters in function definitions. */
+  private void annotateBuckParameter(BuckParameter parameter, AnnotationHolder annotationHolder) {
+    Optional.ofNullable(parameter.getIdentifier())
+        .ifPresent(
+            identifier -> {
+              Annotation annotation = annotationHolder.createInfoAnnotation(identifier, null);
+              annotation.setTextAttributes(BuckSyntaxHighlighter.BUCK_PROPERTY_LVALUE);
+            });
   }
 
   private void annotateLoadCall(BuckLoadCall loadCall, AnnotationHolder annotationHolder) {
@@ -83,7 +83,7 @@ public class BuckAnnotator implements Annotator {
 
     BuckTarget buckTarget =
         Optional.of(loadTargetArgument.getString())
-            .map(BuckPsiUtils::getStringValueFromBuckString)
+            .map(BuckString::getValue)
             .flatMap(BuckTarget::parse)
             .orElse(null);
     if (buckTarget == null) {
@@ -133,8 +133,7 @@ public class BuckAnnotator implements Annotator {
     Set<String> availableSymbols = BuckPsiUtils.findSymbolsInPsiTree(psiFile, "").keySet();
     for (BuckLoadArgument loadArgument : loadCall.getLoadArgumentList()) {
       BuckString buckString = loadArgument.getString();
-      String symbol = BuckPsiUtils.getStringValueFromBuckString(buckString);
-      if (availableSymbols.contains(symbol)) {
+      if (availableSymbols.contains(buckString.getValue())) {
         annotationHolder
             .createInfoAnnotation(buckString, null)
             .setTextAttributes(BuckSyntaxHighlighter.BUCK_IDENTIFIER);
@@ -146,19 +145,19 @@ public class BuckAnnotator implements Annotator {
     }
   }
 
-  private void annotateSingleExpression(
-      BuckSingleExpression singleExpression, AnnotationHolder annotationHolder) {
-    Optional.of(singleExpression)
-        .map(BuckPsiUtils::getStringValueFromExpression)
+  private void annotateSimpleExpression(
+      BuckSimpleExpression simpleExpression, AnnotationHolder annotationHolder) {
+    Optional.of(simpleExpression)
+        .map(BuckPsiUtils::getStringValueFromSimpleExpression)
         .filter(
             s ->
-                annotateStringAsTargetPattern(singleExpression, s, annotationHolder)
-                    || annotateStringAsLocalFile(singleExpression, s, annotationHolder));
+                annotateStringAsTargetPattern(simpleExpression, s, annotationHolder)
+                    || annotateStringAsLocalFile(simpleExpression, s, annotationHolder));
   }
 
   /** Annotates targets that refer to this file, as in ":other-target" */
   private boolean annotateStringAsTargetPattern(
-      BuckSingleExpression expression, String stringValue, AnnotationHolder annotationHolder) {
+      BuckSimpleExpression expression, String stringValue, AnnotationHolder annotationHolder) {
     BuckTargetPattern buckTargetPattern = BuckTargetPattern.parse(stringValue).orElse(null);
     if (buckTargetPattern == null) {
       return false;
@@ -173,7 +172,7 @@ public class BuckAnnotator implements Annotator {
           buckTargetLocator.resolve(sourceFile, buckTargetPattern).orElse(null);
       if (absolutePattern == null) {
         Annotation annotation =
-            annotationHolder.createErrorAnnotation(expression, "Cannot resolve target pattern");
+            annotationHolder.createWarningAnnotation(expression, "Cannot resolve target pattern");
         annotation.setTextAttributes(BuckSyntaxHighlighter.BUCK_INVALID_TARGET);
         return true;
       }
@@ -200,7 +199,7 @@ public class BuckAnnotator implements Annotator {
               .map(path -> "Cannot find file at " + path.toString())
               .orElse("Cannot resolve path from target pattern");
       annotationHolder
-          .createErrorAnnotation(expression, message)
+          .createWarningAnnotation(expression, message)
           .setTextAttributes(BuckSyntaxHighlighter.BUCK_INVALID_TARGET);
       return true;
     }
@@ -239,7 +238,7 @@ public class BuckAnnotator implements Annotator {
 
   /** Annotates targets that refer to files relative to this file. */
   private boolean annotateStringAsLocalFile(
-      BuckSingleExpression targetExpression,
+      BuckSimpleExpression targetExpression,
       String targetValue,
       AnnotationHolder annotationHolder) {
     Optional<VirtualFile> targetFile =
@@ -256,9 +255,5 @@ public class BuckAnnotator implements Annotator {
         annotationHolder.createInfoAnnotation(targetExpression, targetFile.get().getPath());
     annotation.setTextAttributes(BuckSyntaxHighlighter.BUCK_FILE_NAME);
     return true;
-  }
-
-  private void logToMessageBus(Project project) {
-    project.getMessageBus().syncPublisher(IntellijBuckAction.EVENT).consume(getClass().toString());
   }
 }

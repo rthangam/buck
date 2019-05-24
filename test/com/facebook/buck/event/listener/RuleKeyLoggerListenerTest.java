@@ -23,7 +23,7 @@ import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
@@ -33,7 +33,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.support.bgtasks.TaskManagerScope;
+import com.facebook.buck.support.bgtasks.TaskManagerCommandScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -53,7 +53,7 @@ public class RuleKeyLoggerListenerTest {
   private ExecutorService outputExecutor;
   private InvocationInfo info;
   private BuildRuleDurationTracker durationTracker;
-  private TaskManagerScope managerScope;
+  private TaskManagerCommandScope managerScope;
 
   @Before
   public void setUp() throws IOException {
@@ -73,9 +73,10 @@ public class RuleKeyLoggerListenerTest {
             "topspin",
             ImmutableList.of(),
             ImmutableList.of(),
-            tempDirectory.getRoot().toPath());
+            tempDirectory.getRoot().toPath(),
+            false);
     durationTracker = new BuildRuleDurationTracker();
-    managerScope = new TestBackgroundTaskManager().getNewScope(info.getBuildId());
+    managerScope = TestBackgroundTaskManager.of().getNewScope(info.getBuildId());
   }
 
   @Test
@@ -118,7 +119,7 @@ public class RuleKeyLoggerListenerTest {
   private BuildRuleEvent.Finished createBuildEvent() {
     BuildRule rule =
         new FakeBuildRule(
-            ImmutableBuildTarget.of(projectFilesystem.getRootPath(), "//topspin", "//downtheline"));
+            BuildTargetFactory.newInstance(projectFilesystem, "//topspin:downtheline"));
     BuildRuleKeys keys = BuildRuleKeys.of(new RuleKey("1a1a1a"));
     BuildRuleEvent.Started started =
         TestEventConfigurator.configureTestEvent(BuildRuleEvent.started(rule, durationTracker));
@@ -138,6 +139,7 @@ public class RuleKeyLoggerListenerTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -148,7 +150,7 @@ public class RuleKeyLoggerListenerTest {
   }
 
   private RuleKeyLoggerListener newInstance(
-      TaskManagerScope managerScope, int minLinesForAutoFlush) {
+      TaskManagerCommandScope managerScope, int minLinesForAutoFlush) {
     return new RuleKeyLoggerListener(
         projectFilesystem, info, outputExecutor, managerScope, minLinesForAutoFlush);
   }

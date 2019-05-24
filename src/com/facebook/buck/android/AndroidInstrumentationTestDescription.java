@@ -35,7 +35,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.util.PackagedResource;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.google.common.collect.ImmutableCollection.Builder;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,10 +88,13 @@ public class AndroidInstrumentationTestDescription
         (HasInstallableApk) apk,
         args.getLabels(),
         args.getContacts(),
-        javaOptions.get().getJavaRuntimeLauncher(context.getActionGraphBuilder()),
+        javaOptions
+            .get()
+            .getJavaRuntimeLauncher(
+                context.getActionGraphBuilder(), buildTarget.getTargetConfiguration()),
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(buckConfig.getDefaultTestRuleTimeoutMs()),
+            .orElse(buckConfig.getView(TestBuckConfig.class).getDefaultTestRuleTimeoutMs()),
         getRelativePackagedResource(projectFilesystem, "ddmlib.jar"),
         getRelativePackagedResource(projectFilesystem, "kxml2.jar"),
         getRelativePackagedResource(projectFilesystem, "guava.jar"),
@@ -122,7 +125,9 @@ public class AndroidInstrumentationTestDescription
       AndroidInstrumentationTestDescriptionArg constructorArg,
       Builder<BuildTarget> extraDepsBuilder,
       Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   @BuckStyleImmutable

@@ -28,7 +28,6 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -42,6 +41,7 @@ public class AndroidBinaryFactory {
 
   private static final Flavor ANDROID_MODULARITY_VERIFICATION_FLAVOR =
       InternalFlavor.of("modularity_verification");
+  static final Flavor EXO_SYMLINK_TREE = InternalFlavor.of("exo_symlink_tree");
 
   private final AndroidBuckConfig androidBuckConfig;
 
@@ -74,19 +74,27 @@ public class AndroidBinaryFactory {
     ProGuardObfuscateStep.SdkProguardType androidSdkProguardConfig =
         args.getAndroidSdkProguardConfig().orElse(ProGuardObfuscateStep.SdkProguardType.NONE);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-
     AndroidGraphEnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
     AndroidBinaryFilesInfo filesInfo =
         new AndroidBinaryFilesInfo(result, exopackageModes, args.isPackageAssetLibraries());
 
+    if (filesInfo.getExopackageInfo().isPresent()) {
+      AndroidBinaryExopackageSymlinkTree androidBinaryExopackageSymlinkTree =
+          new AndroidBinaryExopackageSymlinkTree(
+              buildTarget.withAppendedFlavors(EXO_SYMLINK_TREE),
+              projectFilesystem,
+              graphBuilder,
+              filesInfo.getExopackageInfo().get(),
+              result.getAndroidManifestPath());
+      graphBuilder.addToIndex(androidBinaryExopackageSymlinkTree);
+    }
     Optional<BuildRule> moduleVerification;
     if (args.getAndroidAppModularityResult().isPresent()) {
       moduleVerification =
           Optional.of(
               new AndroidAppModularityVerification(
-                  ruleFinder,
+                  graphBuilder,
                   buildTarget.withFlavors(ANDROID_MODULARITY_VERIFICATION_FLAVOR),
                   projectFilesystem,
                   args.getAndroidAppModularityResult().get(),
@@ -105,7 +113,7 @@ public class AndroidBinaryFactory {
         toolchainProvider.getByName(
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
         params,
-        ruleFinder,
+        graphBuilder,
         Optional.of(args.getProguardJvmArgs()),
         (Keystore) keystore,
         dexSplitMode,
@@ -133,7 +141,7 @@ public class AndroidBinaryFactory {
         args.isCompressAssetLibraries(),
         args.getAssetCompressionAlgorithm(),
         args.getManifestEntries(),
-        javaOptions.getJavaRuntimeLauncher(graphBuilder),
+        javaOptions.getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
         args.getIsCacheable(),
         moduleVerification,
         filesInfo.getDexFilesInfo(),

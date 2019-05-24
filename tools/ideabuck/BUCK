@@ -1,66 +1,35 @@
 load("//tools/build_rules:java_rules.bzl", "java_test")
 
-genrule(
-    name = "generate_bnf",
-    srcs = [
-        "src/com/facebook/buck/intellij/ideabuck/lang/Buck.bnf",
-    ],
-    out = ".",
-    cmd = "$(exe //third-party/java/grammar-kit:grammar-kit) $OUT $SRCS",
+# =========================================================
+# 'src' directory layout:
+# =========================================================
+
+# Classes considered to be stable for public use
+API_SOURCE_FILES = glob([
+    "src/com/facebook/buck/intellij/ideabuck/api/**/*.java",
+])
+
+# Implementation classes that should not be used by other plugins.
+PLUGIN_SOURCE_FILES = glob(
+    ["src/**/*.java"],
+    exclude = API_SOURCE_FILES,
 )
 
-genrule(
-    name = "generate_flex",
-    srcs = [
-        "src/com/facebook/buck/intellij/ideabuck/lang/Buck.flex",
-    ],
-    out = ".",
-    cmd = (
-        "$(exe //third-party/java/grammar-kit:jflex)" +
-        " -skel $(location //third-party/java/grammar-kit:idea-flex.skeleton)/idea-flex.skeleton" +
-        " -d $OUT/com/facebook/buck/intellij/ideabuck/lang" +
-        " src/com/facebook/buck/intellij/ideabuck/lang/Buck.flex"
-    ),
-)
-
-zip_file(
-    name = "generate_zip",
-    srcs = [
-        ":generate_bnf",
-        ":generate_flex",
-    ],
-    out = "generated_bnf.src.zip",
-)
-
-java_library(
-    name = "bundle_generated_lib",
-    srcs = [
-        "src/com/facebook/buck/intellij/ideabuck/file/BuckFileType.java",
-        "src/com/facebook/buck/intellij/ideabuck/icons/BuckIcons.java",
-        "src/com/facebook/buck/intellij/ideabuck/lang/BuckFile.java",
-        "src/com/facebook/buck/intellij/ideabuck/lang/BuckLanguage.java",
-        "src/com/facebook/buck/intellij/ideabuck/lang/psi/BuckElementType.java",
-        "src/com/facebook/buck/intellij/ideabuck/lang/psi/BuckPsiUtils.java",
-        "src/com/facebook/buck/intellij/ideabuck/lang/psi/BuckTokenType.java",
-        ":generate_zip",
-    ],
-    provided_deps = [
-        "//third-party/java/intellij:intellij-plugin-sdk",
-    ],
-)
-
+# ================================================================
+# Classes considered to be part of ideabuck's public/reusable API.
+# Other IntelliJ plugins that wish to declare a dependency on
+# ideabuck to reference its classes should limit themselves to
+# classes defined here.
+#
+# Note that the API does not have dependencies on generated
+# grammar artifacts.  This is intentional to enforce that the
+# public API does not leak grammar implementation details.
+# ================================================================
 java_library(
     name = "api",
-    srcs = glob(
-        [
-            "src/com/facebook/buck/intellij/ideabuck/api/**/*.java",
-        ],
-    ),
+    srcs = API_SOURCE_FILES,
     provided_deps = [
         "//third-party/java/intellij:intellij-plugin-sdk",
-        # IntelliJ will provide these, too...
-        "//third-party/java/guava:guava",
-        "//third-party/java/jsr:jsr305",
     ],
     source = "1.8",
     target = "1.8",
@@ -71,27 +40,12 @@ java_library(
 
 java_library(
     name = "ideabuck-lib",
-    srcs = glob(
-        [
-            "src/**/*.java",
-        ],
-        exclude = [
-            "src/com/facebook/buck/intellij/ideabuck/api/**/*.java",
-            "src/com/facebook/buck/intellij/ideabuck/file/BuckFileType.java",
-            "src/com/facebook/buck/intellij/ideabuck/icons/BuckIcons.java",
-            "src/com/facebook/buck/intellij/ideabuck/lang/psi/*.java",
-            "src/com/facebook/buck/intellij/ideabuck/lang/BuckFile.java",
-            "src/com/facebook/buck/intellij/ideabuck/lang/BuckLanguage.java",
-        ],
-    ),
+    srcs = PLUGIN_SOURCE_FILES,
     exported_deps = [
         ":api",
     ],
     provided_deps = [
         "//third-party/java/intellij:intellij-plugin-sdk",
-        # IntelliJ will provide these, too...
-        "//third-party/java/guava:guava",
-        "//third-party/java/jsr:jsr305",
     ],
     source = "1.8",
     target = "1.8",
@@ -99,7 +53,6 @@ java_library(
         "//tools/ideabuck/...",
     ],
     deps = [
-        ":bundle_generated_lib",
         "//src/com/facebook/buck/event/external:external_lib",
         "//third-party/java/android:ddmlib",
         "//third-party/java/gson:gson",
@@ -109,6 +62,7 @@ java_library(
         "//third-party/java/jackson:jackson-datatype-guava",
         "//third-party/java/jackson:jackson-mrbean",
         "//third-party/java/jetty:jetty",
+        "//tools/psi-grammar:grammar",
     ],
 )
 

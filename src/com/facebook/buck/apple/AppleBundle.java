@@ -37,7 +37,7 @@ import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -147,6 +147,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final Tool codesign;
 
   @AddToRuleKey private final Optional<Tool> swiftStdlibTool;
+
+  @AddToRuleKey private final Tool lipo;
 
   @AddToRuleKey private final boolean dryRunCodeSigning;
 
@@ -277,11 +279,15 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       this.codeSignIdentitiesSupplier = Suppliers.ofInstance(ImmutableList.of());
     }
     this.codesignAllocatePath = appleCxxPlatform.getCodesignAllocate();
-    this.codesign = appleCxxPlatform.getCodesignProvider().resolve(graphBuilder);
+    this.codesign =
+        appleCxxPlatform
+            .getCodesignProvider()
+            .resolve(graphBuilder, buildTarget.getTargetConfiguration());
     this.swiftStdlibTool =
         appleCxxPlatform.getSwiftPlatform().isPresent()
             ? appleCxxPlatform.getSwiftPlatform().get().getSwiftStdlibTool()
             : Optional.empty();
+    this.lipo = appleCxxPlatform.getLipo();
 
     this.codesignTimeout = codesignTimeout;
     this.copySwiftStdlibToFrameworks = copySwiftStdlibToFrameworks;
@@ -983,16 +989,6 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 || copySwiftStdlibToFrameworks);
 
     if (swiftStdlibTool.isPresent() && shouldCopySwiftStdlib) {
-      ImmutableList.Builder<String> swiftStdlibCommand = ImmutableList.builder();
-      swiftStdlibCommand.addAll(swiftStdlibTool.get().getCommandPrefix(resolver));
-      swiftStdlibCommand.add(
-          "--scan-executable",
-          bundleBinaryPath.toString(),
-          "--scan-folder",
-          bundleRoot.resolve(this.destinations.getFrameworksPath()).toString(),
-          "--scan-folder",
-          bundleRoot.resolve(destinations.getPlugInsPath()).toString());
-
       String tempDirPattern = isForPackaging ? "__swift_packaging_temp__%s" : "__swift_temp__%s";
       stepsBuilder.add(
           new SwiftStdlibStep(
@@ -1001,7 +997,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                   getProjectFilesystem(), getBuildTarget(), tempDirPattern),
               this.sdkPath,
               destinationPath,
-              swiftStdlibCommand.build(),
+              swiftStdlibTool.get().getCommandPrefix(resolver),
+              lipo.getCommandPrefix(resolver),
+              bundleBinaryPath,
+              ImmutableSet.of(destinations.getFrameworksPath(), destinations.getPlugInsPath()),
               codeSignIdentitySupplier));
     }
   }
@@ -1163,7 +1162,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
     // When "running" an app bundle, ensure debug symbols are available.
     if (binary.get() instanceof HasAppleDebugSymbolDeps) {
       List<BuildRule> symbolDeps =

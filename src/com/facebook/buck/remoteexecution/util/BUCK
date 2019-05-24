@@ -8,7 +8,6 @@ java_library(
         "//src/com/facebook/buck/event:event",
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/remoteexecution:remoteexecution",
-        "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
@@ -17,5 +16,6 @@ java_library(
         "//src/com/facebook/buck/util/function:function",
         "//third-party/java/guava:guava",
         "//third-party/java/jsr:jsr305",
+        "//third-party/java/remote-apis:remote-apis",
     ],
 )

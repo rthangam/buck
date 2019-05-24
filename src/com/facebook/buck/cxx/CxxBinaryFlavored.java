@@ -20,7 +20,7 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
@@ -47,7 +47,7 @@ public class CxxBinaryFlavored implements Flavored {
         Sets.intersection(
             flavors,
             Sets.union(
-                getCxxPlatformsProvider().getCxxPlatforms().getFlavors(),
+                getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getFlavors(),
                 cxxBuckConfig.getDeclaredPlatforms()));
     if (platformFlavors.size() > 1) {
       return false;
@@ -60,6 +60,7 @@ public class CxxBinaryFlavored implements Flavored {
             ImmutableSet.of(
                 CxxDescriptionEnhancer.CXX_LINK_MAP_FLAVOR,
                 CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
+                CxxDescriptionEnhancer.INCREMENTAL_THINLTO,
                 CxxCompilationDatabase.COMPILATION_DATABASE,
                 CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
                 CxxInferEnhancer.InferFlavors.INFER.getFlavor(),
@@ -80,7 +81,7 @@ public class CxxBinaryFlavored implements Flavored {
             // Missing: CXX Compilation Database
             // Missing: CXX Description Enhancer
             // Missing: CXX Infer Enhancer
-            getCxxPlatformsProvider().getCxxPlatforms(),
+            getCxxPlatformsProvider().getUnresolvedCxxPlatforms(),
             LinkerMapMode.FLAVOR_DOMAIN,
             StripStyle.FLAVOR_DOMAIN));
   }

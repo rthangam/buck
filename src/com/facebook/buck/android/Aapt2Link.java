@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -32,7 +33,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
@@ -145,8 +145,7 @@ public class Aapt2Link extends AbstractBuildRule {
     // Need to reverse the order of the rules because aapt2 allows later resources
     // to override earlier ones, but aapt gives the earlier ones precedence.
     Iterable<Path> compiledResourcePaths =
-        Lists.reverse(compileRules)
-                .stream()
+        Lists.reverse(compileRules).stream()
                 .map(Aapt2Compile::getSourcePathToOutput)
                 .map(context.getSourcePathResolver()::getAbsolutePath)
             ::iterator;
@@ -173,8 +172,7 @@ public class Aapt2Link extends AbstractBuildRule {
             context.getSourcePathResolver(),
             getProjectFilesystem().resolve(linkTreePath),
             symlinkPaths.build(),
-            dependencyResourceApks
-                .stream()
+            dependencyResourceApks.stream()
                 .map(context.getSourcePathResolver()::getRelativePath)
                 .collect(Collectors.toList())));
     steps.add(ZipScrubberStep.of(getProjectFilesystem().resolve(getResourceApkPath())));

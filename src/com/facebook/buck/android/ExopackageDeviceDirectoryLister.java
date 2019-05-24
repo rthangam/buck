@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -29,7 +30,6 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -90,8 +90,7 @@ public class ExopackageDeviceDirectoryLister extends AbstractBuildRule {
                       device.mkDirP(ExopackageInstaller.EXOPACKAGE_INSTALL_ROOT.toString());
                       contents.put(
                           device.getSerialNumber(),
-                          device
-                              .listDirRecursive(ExopackageInstaller.EXOPACKAGE_INSTALL_ROOT)
+                          device.listDirRecursive(ExopackageInstaller.EXOPACKAGE_INSTALL_ROOT)
                               .stream()
                               .map(Path::toString)
                               .collect(
@@ -124,17 +123,13 @@ public class ExopackageDeviceDirectoryLister extends AbstractBuildRule {
     String json = filesystem.readFileIfItExists(contentsPath).get();
     Path packagePath = Paths.get(packageName);
     Map<String, SortedSet<String>> parsedJson = new ObjectMapper().readValue(json, typeRef);
-    return parsedJson
-        .entrySet()
-        .stream()
+    return parsedJson.entrySet().stream()
         .collect(
             ImmutableSortedMap.toImmutableSortedMap(
                 Ordering.natural(),
                 Map.Entry::getKey,
                 entry ->
-                    entry
-                        .getValue()
-                        .stream()
+                    entry.getValue().stream()
                         .map(Paths::get)
                         .filter(p -> p.startsWith(packagePath))
                         .map(packagePath::relativize)

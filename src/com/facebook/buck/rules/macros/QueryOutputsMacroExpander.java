@@ -26,7 +26,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.query.Query;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
@@ -57,11 +56,6 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
   }
 
   @Override
-  public QueryOutputsMacro fromQuery(Query query) {
-    return QueryOutputsMacro.of(query);
-  }
-
-  @Override
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
@@ -69,9 +63,7 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
       QueryOutputsMacro input,
       QueryResults precomputedWork) {
     return new QueriedOutputsArg(
-        precomputedWork
-            .results
-            .stream()
+        precomputedWork.results.stream()
             .map(
                 queryTarget -> {
                   Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
@@ -81,11 +73,6 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
             .filter(Objects::nonNull)
             .sorted()
             .collect(ImmutableList.toImmutableList()));
-  }
-
-  @Override
-  boolean detectsTargetGraphOnlyDeps() {
-    return false;
   }
 
   private static class QueriedOutputsArg implements Arg {
@@ -100,8 +87,7 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
       // TODO(cjhopman): The sorted() call could feasibly (though unlikely) return different
       // ordering in different contexts.
       consumer.accept(
-          queriedOutputs
-              .stream()
+          queriedOutputs.stream()
               .map(pathResolver::getAbsolutePath)
               .map(Path::toString)
               .sorted()

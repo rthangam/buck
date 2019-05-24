@@ -109,7 +109,8 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
       Optional<Pair<Long, Long>> ruleKeyCacheCheckTimestamps,
       Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps,
       Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps,
-      Optional<Pair<Long, Long>> buildTimestamps) {
+      Optional<Pair<Long, Long>> buildTimestamps,
+      Optional<String> strategyResult) {
     return new Finished(
         beginning,
         ruleKeys,
@@ -126,7 +127,8 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
         ruleKeyCacheCheckTimestamps,
         inputRuleKeyCacheCheckTimestamps,
         manifestRuleKeyCacheCheckTimestamps,
-        buildTimestamps);
+        buildTimestamps,
+        strategyResult);
   }
 
   public static StartedRuleKeyCalc ruleKeyCalculationStarted(
@@ -169,9 +171,13 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     @Override
     public void configure(
-        long timestamp, long nanoTime, long threadUserNanoTime, long threadId, BuildId buildId) {
-      super.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
-      this.duration = tracker.doBeginning(getBuildRule(), timestamp, nanoTime);
+        long timestampMillis,
+        long nanoTime,
+        long threadUserNanoTime,
+        long threadId,
+        BuildId buildId) {
+      super.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
+      this.duration = tracker.doBeginning(getBuildRule(), timestampMillis, nanoTime);
     }
 
     @Override
@@ -199,11 +205,16 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     @Override
     public void configure(
-        long timestamp, long nanoTime, long threadUserNanoTime, long threadId, BuildId buildId) {
-      super.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+        long timestampMillis,
+        long nanoTime,
+        long threadUserNanoTime,
+        long threadId,
+        BuildId buildId) {
+      super.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
       long threadUserNanoDuration = threadUserNanoTime - beginning.getThreadUserNanoTime();
       this.duration =
-          beginning.tracker.doEnding(getBuildRule(), timestamp, nanoTime, threadUserNanoDuration);
+          beginning.tracker.doEnding(
+              getBuildRule(), timestampMillis, nanoTime, threadUserNanoDuration);
     }
 
     @Override
@@ -241,6 +252,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
     private final Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps;
     private final Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps;
     private final Optional<Pair<Long, Long>> buildTimestamps;
+    private final Optional<String> strategyResult;
 
     private Finished(
         BeginningBuildRuleEvent beginning,
@@ -258,7 +270,8 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
         Optional<Pair<Long, Long>> ruleKeyCacheCheckTimestamps,
         Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps,
         Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps,
-        Optional<Pair<Long, Long>> buildTimestamps) {
+        Optional<Pair<Long, Long>> buildTimestamps,
+        Optional<String> strategyResult) {
       super(beginning);
       this.status = status;
       this.cacheResult = cacheResult;
@@ -275,6 +288,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
       this.inputRuleKeyCacheCheckTimestamps = inputRuleKeyCacheCheckTimestamps;
       this.manifestRuleKeyCacheCheckTimestamps = manifestRuleKeyCacheCheckTimestamps;
       this.buildTimestamps = buildTimestamps;
+      this.strategyResult = strategyResult;
     }
 
     @JsonView(JsonViews.MachineReadableLog.class)
@@ -355,6 +369,11 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
     @JsonIgnore
     public Optional<Pair<Long, Long>> getBuildTimestamps() {
       return buildTimestamps;
+    }
+
+    @JsonIgnore
+    public Optional<String> getStrategyResult() {
+      return strategyResult;
     }
 
     @JsonIgnore

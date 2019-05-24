@@ -29,12 +29,20 @@ python_library(
     ],
 )
 
+python_library(
+    name = "java_version",
+    srcs = [
+        "java_version.py",
+    ],
+)
+
 python_binary(
     name = "gen_buck_info",
     main = "gen_buck_info.py",
     visibility = ["PUBLIC"],
     deps = [
         ":buck_version",
+        ":java_version",
     ],
 )
 
@@ -82,6 +90,7 @@ RESOURCES_NOT_AFFECTING_BUILD_ARTIFACTS = {
 # set to True.
 RESOURCES_AFFECTING_BUILD_ARTIFACTS = {
     "bootstrapper_jar": "//src/com/facebook/buck/cli/bootstrapper:bootstrapper",
+    "buckfilesystem_jar": "//src/com/facebook/buck/core/filesystems:filesystems",
     "buck_server": "//src/com/facebook/buck/cli:main-fixed",
     "dx": "//third-party/java/dx:etc_dx",
     "native_exopackage_fake_path": "//assets/android:native-exopackage-fakes.apk",
@@ -140,6 +149,7 @@ python_library(
         "buck_repo.py",
         "buck_tool.py",
         "file_locks.py",
+        "java_lookup.py",
         "timing.py",
         "tracing.py",
     ],
@@ -171,6 +181,7 @@ python_binary(
     ],
     deps = [
         ":bucklib",
+        ":java_version",
         ":subprocutils",
     ],
 )

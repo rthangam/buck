@@ -18,11 +18,13 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
@@ -32,7 +34,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -80,8 +81,7 @@ public class UnstrippedNativeLibraries extends AbstractBuildRuleWithDeclaredAndE
               @Override
               public StepExecutionResult execute(ExecutionContext context) throws IOException {
                 List<String> lines =
-                    inputs
-                        .stream()
+                    inputs.stream()
                         .map(
                             sp ->
                                 getProjectFilesystem()
@@ -107,10 +107,7 @@ public class UnstrippedNativeLibraries extends AbstractBuildRuleWithDeclaredAndE
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return inputs
-        .stream()
-        .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
-        .map(BuildRule::getBuildTarget);
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
+    return buildRuleResolver.filterBuildRuleInputs(inputs.stream()).map(BuildRule::getBuildTarget);
   }
 }

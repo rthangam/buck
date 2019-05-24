@@ -21,7 +21,7 @@ import com.facebook.buck.core.description.Description;
 import com.facebook.buck.core.description.DescriptionCreationContext;
 import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import java.util.Arrays;
 import java.util.Collection;
@@ -60,7 +60,7 @@ public class CxxDescriptionsProvider implements DescriptionProvider {
     CxxLibraryFactory cxxLibraryFactory =
         new CxxLibraryFactory(toolchainProvider, cxxBuckConfig, inferBuckConfig);
     CxxLibraryMetadataFactory cxxLibraryMetadataFactory =
-        new CxxLibraryMetadataFactory(toolchainProvider);
+        new CxxLibraryMetadataFactory(toolchainProvider, config.getFilesystem());
 
     CxxLibraryDescription cxxLibraryDescription =
         new CxxLibraryDescription(
@@ -74,6 +74,7 @@ public class CxxDescriptionsProvider implements DescriptionProvider {
         cxxLibraryDescription,
         new CxxGenruleDescription(
             cxxBuckConfig, toolchainProvider, context.getSandboxExecutionStrategy()),
+        new CxxToolchainDescription(),
         new CxxTestDescription(toolchainProvider, cxxBuckConfig, cxxBinaryMetadataFactory),
         new PrebuiltCxxLibraryDescription(toolchainProvider, cxxBuckConfig),
         PrebuiltCxxLibraryGroupDescription.of(),

@@ -86,7 +86,9 @@ public class RustBinaryDescription
         BINARY_TYPE.getFlavorAndValue(buildTarget).map(Entry::getValue).orElse(Type.STATIC);
 
     RustToolchain rustToolchain = getRustToolchain();
-    RustPlatform rustPlatform = RustCompileUtils.getRustPlatform(rustToolchain, buildTarget, args);
+    RustPlatform rustPlatform =
+        RustCompileUtils.getRustPlatform(rustToolchain, buildTarget, args)
+            .resolve(context.getActionGraphBuilder(), buildTarget.getTargetConfiguration());
 
     return RustCompileUtils.createBinaryBuildRule(
         buildTarget,
@@ -96,6 +98,7 @@ public class RustBinaryDescription
         rustBuckConfig,
         rustPlatform,
         args.getCrate(),
+        args.getEdition(),
         args.getFeatures(),
         Stream.of(rustPlatform.getRustBinaryFlags().stream(), args.getRustcFlags().stream())
             .flatMap(x -> x)
@@ -178,6 +181,8 @@ public class RustBinaryDescription
   @Value.Immutable
   interface AbstractRustBinaryDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasTests, HasDefaultPlatform {
+    Optional<String> getEdition();
+
     @Value.NaturalOrder
     ImmutableSortedSet<String> getFeatures();
 

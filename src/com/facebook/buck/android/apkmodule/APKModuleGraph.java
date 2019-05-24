@@ -188,8 +188,7 @@ public class APKModuleGraph implements AddsToRuleKey {
   }
 
   public ImmutableSortedMap<APKModule, ImmutableSortedSet<APKModule>> toOutgoingEdgesMap() {
-    return getAPKModules()
-        .stream()
+    return getAPKModules().stream()
         .collect(
             ImmutableSortedMap.toImmutableSortedMap(
                 Ordering.natural(),
@@ -634,7 +633,7 @@ public class APKModuleGraph implements AddsToRuleKey {
     return ImmutableMultimap.copyOf(sharedSeedMapBuilder);
   }
 
-  private Set<BuildTarget> getBuildTargets(APKModule module) {
+  public Set<BuildTarget> getBuildTargets(APKModule module) {
     return buildTargetsMap.computeIfAbsent(module, (m) -> new HashSet<>());
   }
 }

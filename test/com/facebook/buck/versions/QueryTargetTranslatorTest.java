@@ -22,6 +22,8 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.query.Query;
@@ -41,21 +43,29 @@ public class QueryTargetTranslatorTest {
     BuildTarget b = BuildTargetFactory.newInstance("//:b");
     FixedTargetNodeTranslator translator =
         new FixedTargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableMap.of(a, b));
-    QueryTargetTranslator queryTranslator = new QueryTargetTranslator();
+    QueryTargetTranslator queryTranslator =
+        new QueryTargetTranslator(new ParsingUnconfiguredBuildTargetViewFactory());
     assertThat(
         queryTranslator.translateTargets(
-            CELL_PATH_RESOLVER, "", translator, Query.of("deps(//:a)")),
-        Matchers.equalTo(Optional.of(Query.of("deps(//:b)"))));
+            CELL_PATH_RESOLVER,
+            "",
+            translator,
+            Query.of("deps(//:a)", EmptyTargetConfiguration.INSTANCE)),
+        Matchers.equalTo(Optional.of(Query.of("deps(//:b)", EmptyTargetConfiguration.INSTANCE))));
   }
 
   @Test
   public void noTargets() {
     FixedTargetNodeTranslator translator =
         new FixedTargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableMap.of());
-    QueryTargetTranslator queryTranslator = new QueryTargetTranslator();
+    QueryTargetTranslator queryTranslator =
+        new QueryTargetTranslator(new ParsingUnconfiguredBuildTargetViewFactory());
     assertThat(
         queryTranslator.translateTargets(
-            CELL_PATH_RESOLVER, "", translator, Query.of("$declared_deps")),
+            CELL_PATH_RESOLVER,
+            "",
+            translator,
+            Query.of("$declared_deps", EmptyTargetConfiguration.INSTANCE)),
         Matchers.equalTo(Optional.empty()));
   }
 }

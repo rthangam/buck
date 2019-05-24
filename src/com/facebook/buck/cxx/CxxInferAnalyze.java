@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -30,7 +31,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -81,8 +81,7 @@ class CxxInferAnalyze extends AbstractBuildRule {
   }
 
   private ImmutableSortedSet<SourcePath> getSpecsOfAllDeps() {
-    return transitiveAnalyzeRules
-        .stream()
+    return transitiveAnalyzeRules.stream()
         .map(rule -> ExplicitBuildTargetSourcePath.of(rule.getBuildTarget(), rule.getSpecsDir()))
         .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
   }
@@ -134,8 +133,7 @@ class CxxInferAnalyze extends AbstractBuildRule {
         .add(
             new SymCopyStep(
                 getProjectFilesystem(),
-                captureRules
-                    .stream()
+                captureRules.stream()
                     .map(CxxInferCapture::getSourcePathToOutput)
                     .map(context.getSourcePathResolver()::getRelativePath)
                     .collect(ImmutableList.toImmutableList()),
@@ -146,8 +144,7 @@ class CxxInferAnalyze extends AbstractBuildRule {
               public StepExecutionResult execute(ExecutionContext executionContext)
                   throws IOException {
                 ImmutableList<String> specsDirsWithAbsolutePath =
-                    getSpecsOfAllDeps()
-                        .stream()
+                    getSpecsOfAllDeps().stream()
                         .map(
                             input ->
                                 context.getSourcePathResolver().getAbsolutePath(input).toString())

@@ -18,15 +18,13 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -83,14 +81,13 @@ public class CxxWriteArgsToFileStepTest {
       ImmutableList<Arg> inputArgs,
       ImmutableList<String> expectedArgFileContents,
       Path currentCellPath)
-      throws IOException, InterruptedException {
+      throws IOException {
     ExecutionContext context = TestExecutionContext.newInstance();
 
-    SourcePathResolver sourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+    SourcePathResolver sourcePathResolver = new TestActionGraphBuilder().getSourcePathResolver();
     CxxWriteArgsToFileStep step =
         CxxWriteArgsToFileStep.create(
-            argFilePath, inputArgs, escaper, currentCellPath, sourcePathResolver);
+            argFilePath, inputArgs, escaper, currentCellPath, sourcePathResolver, false);
 
     step.execute(context);
 

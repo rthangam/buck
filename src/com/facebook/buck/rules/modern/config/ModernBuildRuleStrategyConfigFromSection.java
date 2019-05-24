@@ -16,8 +16,11 @@
 
 package com.facebook.buck.rules.modern.config;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 /** Parses the values of a buckconfig section into a {@link ModernBuildRuleStrategyConfig}. */
@@ -31,15 +34,35 @@ public class ModernBuildRuleStrategyConfigFromSection implements ModernBuildRule
   }
 
   @Override
-  public ModernBuildRuleBuildStrategy getBuildStrategy() {
+  public ModernBuildRuleBuildStrategy getBuildStrategy(boolean whitelistedForRemoteExecution) {
     return delegate
-        .getEnum(section, "strategy", ModernBuildRuleBuildStrategy.class)
+        .getEnum(
+            section,
+            shouldUseExperimentalStrategy(whitelistedForRemoteExecution)
+                ? "experimental_strategy"
+                : "strategy",
+            ModernBuildRuleBuildStrategy.class)
         .orElse(ModernBuildRuleBuildStrategy.DEFAULT);
+  }
+
+  private boolean shouldUseExperimentalStrategy(boolean whitelistedForRemoteExecution) {
+    if (section.equals(AbstractModernBuildRuleConfig.SECTION)) {
+      return whitelistedForRemoteExecution
+          || delegate.getBooleanValue("experiments", "remote_execution_beta_test", false);
+    }
+    return false;
   }
 
   @Override
   public HybridLocalBuildStrategyConfig getHybridLocalConfig() {
-    int localJobs = delegate.getInteger(section, "local_jobs").orElseThrow(requires("local_jobs"));
+    int localJobs = delegate.getView(BuildBuckConfig.class).getNumThreads();
+    OptionalInt localJobsConfig = delegate.getInteger(section, "local_jobs");
+    Optional<Float> localJobsRatioConfig = delegate.getFloat(section, "local_jobs_ratio");
+    if (localJobsRatioConfig.isPresent()) {
+      localJobs = (int) Math.ceil(localJobs * localJobsRatioConfig.get());
+    } else if (localJobsConfig.isPresent()) {
+      localJobs = localJobsConfig.getAsInt();
+    }
     int remoteJobs =
         delegate.getInteger(section, "delegate_jobs").orElseThrow(requires("delegate_jobs"));
     String delegateFlavor =

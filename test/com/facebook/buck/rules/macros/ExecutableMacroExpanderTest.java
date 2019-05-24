@@ -24,15 +24,14 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool.Builder;
@@ -45,7 +44,6 @@ import com.facebook.buck.rules.args.ToolArg;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -59,7 +57,7 @@ public class ExecutableMacroExpanderTest {
   private StringWithMacrosConverter converter;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     filesystem = new FakeProjectFilesystem();
     cellPathResolver = TestCellBuilder.createCellRoots(filesystem);
     graphBuilder = new TestActionGraphBuilder();
@@ -70,6 +68,7 @@ public class ExecutableMacroExpanderTest {
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(cellPathResolver)
+            .setActionGraphBuilder(graphBuilder)
             .addExpanders(new ExecutableMacroExpander())
             .build();
   }
@@ -151,10 +150,14 @@ public class ExecutableMacroExpanderTest {
         (StringWithMacros)
             new DefaultTypeCoercerFactory()
                 .typeCoercerForType(StringWithMacros.class)
-                .coerce(cellPathResolver, filesystem, rule.getBuildTarget().getBasePath(), input);
-    Arg arg = converter.convert(stringWithMacros, graphBuilder);
-    return Arg.stringify(
-        arg, DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)));
+                .coerce(
+                    cellPathResolver,
+                    filesystem,
+                    rule.getBuildTarget().getBasePath(),
+                    EmptyTargetConfiguration.INSTANCE,
+                    input);
+    Arg arg = converter.convert(stringWithMacros);
+    return Arg.stringify(arg, graphBuilder.getSourcePathResolver());
   }
 
   @Test
@@ -181,19 +184,10 @@ public class ExecutableMacroExpanderTest {
     // Verify that the correct cmd was created.
     ExecutableMacroExpander expander = new ExecutableMacroExpander();
     CellPathResolver cellRoots = TestCellBuilder.createCellRoots(filesystem);
+    ExecutableMacro executableMacro = ExecutableMacro.of(target);
     assertEquals(
-        ToolArg.of(tool),
-        expander.expandFrom(
-            target,
-            cellRoots,
-            graphBuilder,
-            expander.parse(target, cellRoots, ImmutableList.of("//:rule"))));
-    Arg expanded =
-        expander.expandFrom(
-            target,
-            cellRoots,
-            graphBuilder,
-            expander.parse(target, cellRoots, ImmutableList.of("//:rule")));
+        ToolArg.of(tool), expander.expandFrom(target, cellRoots, graphBuilder, executableMacro));
+    Arg expanded = expander.expandFrom(target, cellRoots, graphBuilder, executableMacro);
     assertThat(expanded, Matchers.instanceOf(ToolArg.class));
     assertEquals(tool, ((ToolArg) expanded).getTool());
   }
@@ -207,11 +201,7 @@ public class ExecutableMacroExpanderTest {
     ExecutableMacroExpander expander = new ExecutableMacroExpander();
     CellPathResolver cellRoots = TestCellBuilder.createCellRoots(filesystem);
     assertThat(
-        expander.expandFrom(
-            target,
-            cellRoots,
-            graphBuilder,
-            expander.parse(target, cellRoots, ImmutableList.of("//:rule"))),
+        expander.expandFrom(target, cellRoots, graphBuilder, ExecutableMacro.of(target)),
         Matchers.equalTo(ToolArg.of(tool)));
   }
 

@@ -22,17 +22,19 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
-import com.facebook.buck.rules.coercer.BuildTargetTypeCoercer;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.FlavorTypeCoercer;
 import com.facebook.buck.rules.coercer.ListTypeCoercer;
+import com.facebook.buck.rules.coercer.UnconfiguredBuildTargetTypeCoercer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -49,7 +51,10 @@ public class SelectorListFactoryTest {
   public void setUp() {
     projectFilesystem = new FakeProjectFilesystem();
     selectorListFactory =
-        new SelectorListFactory(new SelectorFactory(new BuildTargetTypeCoercer()::coerce));
+        new SelectorListFactory(
+            new SelectorFactory(
+                new UnconfiguredBuildTargetTypeCoercer(
+                    new ParsingUnconfiguredBuildTargetViewFactory())));
   }
 
   @Test
@@ -60,6 +65,7 @@ public class SelectorListFactoryTest {
           TestCellPathResolver.get(projectFilesystem),
           projectFilesystem,
           projectFilesystem.getRootPath(),
+          EmptyTargetConfiguration.INSTANCE,
           Lists.newArrayList(new Object(), new Object()),
           new FlavorTypeCoercer());
       fail("SelectorListFactory.create should throw an exception");
@@ -80,6 +86,7 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(flavorName),
             coercer);
 
@@ -96,6 +103,7 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(),
             coercer);
 
@@ -113,14 +121,13 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(Lists.newArrayList(flavorName1), Lists.newArrayList(flavorName2)),
             coercer);
 
     assertEquals(
         Lists.newArrayList(InternalFlavor.of(flavorName1), InternalFlavor.of(flavorName2)),
-        selectors
-            .getSelectors()
-            .stream()
+        selectors.getSelectors().stream()
             .map(Selector::getDefaultConditionValue)
             .flatMap(ImmutableList::stream)
             .collect(Collectors.toList()));
@@ -143,14 +150,13 @@ public class SelectorListFactoryTest {
             TestCellPathResolver.get(projectFilesystem),
             projectFilesystem,
             projectFilesystem.getRootPath(),
+            EmptyTargetConfiguration.INSTANCE,
             Lists.newArrayList(selectorValue, Lists.newArrayList(flavorName2)),
             coercer);
 
     assertEquals(
         Lists.newArrayList(InternalFlavor.of(flavorName1), InternalFlavor.of(flavorName2)),
-        selectors
-            .getSelectors()
-            .stream()
+        selectors.getSelectors().stream()
             .map(Selector::getDefaultConditionValue)
             .flatMap(ImmutableList::stream)
             .collect(Collectors.toList()));

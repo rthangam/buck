@@ -41,6 +41,9 @@ import org.immutables.value.Value;
 /**
  * Converts a {@link StringWithMacros} into an {@link Arg}. Performs conversion eagerly, and meant
  * as a replacement for the lazy {@link StringWithMacrosArg}.
+ *
+ * <p>As this holds a reference to an {@link ActionGraphBuilder}, instances of this object should
+ * not be capture by anything in the action graph.
  */
 @Value.Immutable
 @BuckStyleImmutable
@@ -53,7 +56,10 @@ abstract class AbstractStringWithMacrosConverter {
   abstract CellPathResolver getCellPathResolver();
 
   @Value.Parameter
-  abstract ImmutableList<AbstractMacroExpander<? extends Macro, ?>> getExpanders();
+  abstract ActionGraphBuilder getActionGraphBuilder();
+
+  @Value.Parameter
+  abstract ImmutableList<MacroExpander<? extends Macro, ?>> getExpanders();
 
   abstract Optional<Function<String, String>> getSanitizer();
 
@@ -65,21 +71,18 @@ abstract class AbstractStringWithMacrosConverter {
   }
 
   @Value.Derived
-  ImmutableMap<Class<? extends Macro>, AbstractMacroExpander<? extends Macro, ?>>
-      getClassExpanders() {
-    ImmutableMap.Builder<Class<? extends Macro>, AbstractMacroExpander<? extends Macro, ?>>
-        builder = ImmutableMap.builder();
-    for (AbstractMacroExpander<? extends Macro, ?> expander : getExpanders()) {
+  ImmutableMap<Class<? extends Macro>, MacroExpander<? extends Macro, ?>> getClassExpanders() {
+    ImmutableMap.Builder<Class<? extends Macro>, MacroExpander<? extends Macro, ?>> builder =
+        ImmutableMap.builder();
+    for (MacroExpander<? extends Macro, ?> expander : getExpanders()) {
       builder.put(expander.getInputClass(), expander);
     }
     return builder.build();
   }
 
   @SuppressWarnings("unchecked")
-  private <M extends Macro, P> AbstractMacroExpander<M, P> getExpander(M macro)
-      throws MacroException {
-    AbstractMacroExpander<M, P> expander =
-        (AbstractMacroExpander<M, P>) getClassExpanders().get(macro.getClass());
+  private <M extends Macro, P> MacroExpander<M, P> getExpander(M macro) throws MacroException {
+    MacroExpander<M, P> expander = (MacroExpander<M, P>) getClassExpanders().get(macro.getClass());
     if (expander == null) {
       throw new MacroException(String.format("unexpected macro %s", macro.getClass()));
     }
@@ -87,29 +90,28 @@ abstract class AbstractStringWithMacrosConverter {
   }
 
   @SuppressWarnings("unchecked")
-  private <T extends Macro, P> Arg expand(T macro, ActionGraphBuilder ruleResolver)
-      throws MacroException {
-    AbstractMacroExpander<T, P> expander = getExpander(macro);
+  private <T extends Macro, P> Arg expand(T macro) throws MacroException {
+    MacroExpander<T, P> expander = getExpander(macro);
 
     // Calculate precomputed work.
     P precomputedWork = (P) getPrecomputedWorkCache().get(macro);
     if (precomputedWork == null) {
       precomputedWork =
-          expander.precomputeWorkFrom(getBuildTarget(), getCellPathResolver(), ruleResolver, macro);
+          expander.precomputeWorkFrom(
+              getBuildTarget(), getCellPathResolver(), getActionGraphBuilder(), macro);
       getPrecomputedWorkCache().put(macro, precomputedWork);
     }
 
     return expander.expandFrom(
-        getBuildTarget(), getCellPathResolver(), ruleResolver, macro, precomputedWork);
+        getBuildTarget(), getCellPathResolver(), getActionGraphBuilder(), macro, precomputedWork);
   }
 
   /**
    * Expand the input given for the this macro to some string, which is intended to be written to a
    * file.
    */
-  private Arg expand(MacroContainer macroContainer, ActionGraphBuilder ruleResolver)
-      throws MacroException {
-    Arg arg = expand(macroContainer.getMacro(), ruleResolver);
+  private Arg expand(MacroContainer macroContainer) throws MacroException {
+    Arg arg = expand(macroContainer.getMacro());
 
     // If specified, wrap this macro's output in a `WriteToFileArg`.
     if (macroContainer.isOutputToFile()) {
@@ -127,19 +129,27 @@ abstract class AbstractStringWithMacrosConverter {
     return arg;
   }
 
-  public Arg convert(StringWithMacros val, ActionGraphBuilder ruleResolver) {
-    return CompositeArg.of(
-        val.map(
-            str ->
-                getSanitizer()
-                    .<Arg>map(sanitizer -> SanitizedArg.create(sanitizer, str))
-                    .orElseGet(() -> StringArg.of(str)),
-            macroContainer -> {
-              try {
-                return expand(macroContainer, ruleResolver);
-              } catch (MacroException e) {
-                throw new HumanReadableException(e, "%s: %s", getBuildTarget(), e.getMessage());
-              }
-            }));
+  private Arg transformString(String str) {
+    return getSanitizer()
+        .<Arg>map(sanitizer -> SanitizedArg.create(sanitizer, str))
+        .orElseGet(() -> StringArg.of(str));
+  }
+
+  private Arg transformMacro(MacroContainer macroContainer) {
+    try {
+      return expand(macroContainer);
+    } catch (MacroException e) {
+      throw new HumanReadableException(e, "%s: %s", getBuildTarget(), e.getMessage());
+    }
+  }
+
+  public Arg convert(StringWithMacros val) {
+    if (val.getParts().size() == 0) {
+      return StringArg.of("");
+    }
+    if (val.getParts().size() == 1) {
+      return val.getParts().get(0).transform(this::transformString, this::transformMacro);
+    }
+    return CompositeArg.of(val.map(this::transformString, this::transformMacro));
   }
 }

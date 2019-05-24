@@ -19,27 +19,54 @@ package com.facebook.buck.core.rules.configsetting;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+@RunWith(Parameterized.class)
 public class ConfigSettingIntegrationTest {
+
+  @Parameterized.Parameters(name = "enable_skylark={0}")
+  public static Collection<Object[]> data() {
+    return ImmutableList.of(new Object[] {true}, new Object[] {false});
+  }
+
+  @Parameterized.Parameter public boolean enableSkylarkParsing;
+
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   @Rule public ExpectedException thrown = ExpectedException.none();
 
-  @Test
-  public void testSelectWorksWithConfigurationValues() throws IOException {
+  private ProjectWorkspace setupWorkspace() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_project", temporaryFolder);
     workspace.setUp();
+    if (enableSkylarkParsing) {
+      workspace.addBuckConfigLocalOption("parser", "polyglot_parsing_enabled", "true");
+      workspace.addBuckConfigLocalOption("parser", "default_build_file_syntax", "SKYLARK");
+    } else {
+      workspace.addBuckConfigLocalOption("parser", "polyglot_parsing_enabled", "false");
+      workspace.addBuckConfigLocalOption("parser", "default_build_file_syntax", "PYTHON_DSL");
+    }
+    return workspace;
+  }
+
+  @Test
+  public void testSelectWorksWithConfigurationValues() throws IOException {
+    ProjectWorkspace workspace = setupWorkspace();
 
     Path output = workspace.buildAndReturnOutput("-c", "cat.file=a", ":cat");
     assertEquals("a", Files.readAllLines(output).get(0));
@@ -49,26 +76,51 @@ public class ConfigSettingIntegrationTest {
   }
 
   @Test
+  public void testCanConcatListWithSelect() throws IOException {
+    ProjectWorkspace workspace = setupWorkspace();
+
+    Path output = workspace.buildAndReturnOutput("-c", "cat.file=a", ":select_concat_list");
+    List<String> result = Files.readAllLines(output);
+    assertEquals(2, result.size());
+    assertTrue(result.contains("a"));
+    assertTrue(result.contains("c"));
+
+    output = workspace.buildAndReturnOutput("-c", "cat.file=b", ":select_concat_list");
+    result = Files.readAllLines(output);
+    assertEquals(2, result.size());
+    assertTrue(result.contains("b"));
+    assertTrue(result.contains("c"));
+  }
+
+  @Test
   public void testUnresolvedConfigurationFailsTheBuild() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_project", temporaryFolder);
-    workspace.setUp();
+    ProjectWorkspace workspace = setupWorkspace();
 
     ProcessResult processResult = workspace.runBuckBuild(":cat");
     processResult.assertFailure();
-    assertThat(
-        processResult.getStderr(),
-        containsString(
-            "None of the conditions in attribute \"srcs\" of //:cat match the configuration.\nChecked conditions:\n"
-                + " //:a\n"
-                + " //:b"));
+    if (enableSkylarkParsing) {
+      assertThat(
+          processResult.getStderr(),
+          containsString(
+              "None of the conditions in attribute \"srcs\" of //:cat match "
+                  + "the configuration.\nChecked conditions:\n"
+                  + " //:a\n"
+                  + " //:b"));
+    } else {
+      // Python does not preserve the order elements in a dict (prior 3.6)
+      assertThat(
+          processResult.getStderr(),
+          containsString(
+              "None of the conditions in attribute \"srcs\" of //:cat match "
+                  + "the configuration.\nChecked conditions:"));
+      assertThat(processResult.getStderr(), containsString("//:a"));
+      assertThat(processResult.getStderr(), containsString("//:b"));
+    }
   }
 
   @Test
   public void testDefaultIsUsedWhenNothingMatches() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_project", temporaryFolder);
-    workspace.setUp();
+    ProjectWorkspace workspace = setupWorkspace();
 
     Path output = workspace.buildAndReturnOutput(":cat_with_default");
     assertEquals("c", Files.readAllLines(output).get(0));
@@ -98,9 +150,7 @@ public class ConfigSettingIntegrationTest {
 
   @Test
   public void testNoneSetsValueToNull() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_project", temporaryFolder);
-    workspace.setUp();
+    ProjectWorkspace workspace = setupWorkspace();
 
     Path output = workspace.buildAndReturnOutput(":echo");
     assertEquals("cmd", Files.readAllLines(output).get(0).trim());
@@ -134,7 +184,7 @@ public class ConfigSettingIntegrationTest {
             this, "project_with_constraints", temporaryFolder);
     workspace.setUp();
 
-    Path output = workspace.buildAndReturnOutput("--target-platforms", "//:osx_x86-64", ":cat");
+    Path output = workspace.buildAndReturnOutput("--target-platforms", "//:osx_x86_64", ":cat");
     assertEquals("a", Files.readAllLines(output).get(0));
 
     output = workspace.buildAndReturnOutput("--target-platforms", "//:linux_aarch64", ":cat");
@@ -153,7 +203,7 @@ public class ConfigSettingIntegrationTest {
             "-c",
             "cat.file=a",
             "--target-platforms",
-            "//:osx_x86-64",
+            "//:osx_x86_64",
             ":cat_with_constraints_and_values");
     assertEquals("a", Files.readAllLines(output).get(0));
 
@@ -174,12 +224,13 @@ public class ConfigSettingIntegrationTest {
             this, "project_with_constraints", temporaryFolder);
     workspace.setUp();
 
-    ProcessResult processResult = workspace.runBuckBuild("--target-platforms", "//:osx", ":cat");
+    ProcessResult processResult =
+        workspace.runBuckBuild("--target-platforms", "//:osx_config", ":cat");
     processResult.assertFailure();
     assertThat(
         processResult.getStderr(),
         containsString(
-            "//:osx is used as a target platform, but not declared using `platform` rule"));
+            "//:osx_config is used as a target platform, but not declared using `platform` rule"));
   }
 
   @Test
@@ -209,7 +260,7 @@ public class ConfigSettingIntegrationTest {
 
     Path output =
         workspace.buildAndReturnOutput(
-            "--target-platforms", "//:osx_x86-64", ":cat_with_specialized_constraints");
+            "--target-platforms", "//:osx_x86_64", ":cat_with_specialized_constraints");
     assertEquals("b", Files.readAllLines(output).get(0));
   }
 
@@ -227,7 +278,7 @@ public class ConfigSettingIntegrationTest {
             "-c",
             "cat.file2=b",
             "--target-platforms",
-            "//:osx_x86-64",
+            "//:osx_x86_64",
             ":cat_with_specialized_config");
     assertEquals("b", Files.readAllLines(output).get(0));
   }

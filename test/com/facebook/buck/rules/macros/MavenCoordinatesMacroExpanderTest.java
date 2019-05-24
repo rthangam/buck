@@ -27,12 +27,11 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.HasMavenCoordinates;
@@ -122,6 +121,7 @@ public class MavenCoordinatesMacroExpanderTest {
         StringWithMacrosConverter.builder()
             .setBuildTarget(target)
             .setCellPathResolver(cellPathResolver)
+            .setActionGraphBuilder(graphBuilder)
             .addExpanders(expander)
             .build();
 
@@ -143,6 +143,7 @@ public class MavenCoordinatesMacroExpanderTest {
         StringWithMacrosConverter.builder()
             .setBuildTarget(target)
             .setCellPathResolver(cellPathResolver)
+            .setActionGraphBuilder(graphBuilder)
             .addExpanders(expander)
             .build();
 
@@ -163,9 +164,13 @@ public class MavenCoordinatesMacroExpanderTest {
         (StringWithMacros)
             new DefaultTypeCoercerFactory()
                 .typeCoercerForType(StringWithMacros.class)
-                .coerce(cellPathResolver, filesystem, rule.getBuildTarget().getBasePath(), input);
-    Arg arg = converter.convert(stringWithMacros, graphBuilder);
-    return Arg.stringify(
-        arg, DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)));
+                .coerce(
+                    cellPathResolver,
+                    filesystem,
+                    rule.getBuildTarget().getBasePath(),
+                    EmptyTargetConfiguration.INSTANCE,
+                    input);
+    Arg arg = converter.convert(stringWithMacros);
+    return Arg.stringify(arg, graphBuilder.getSourcePathResolver());
   }
 }

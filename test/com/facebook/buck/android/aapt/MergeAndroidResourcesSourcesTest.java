@@ -20,17 +20,15 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -106,14 +104,14 @@ public class MergeAndroidResourcesSourcesTest {
     ImmutableList<SourcePath> directories =
         ImmutableList.of(
             FakeSourcePath.of(filesystem, "res_in_1"), FakeSourcePath.of(filesystem, "res_in_2"));
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
     MergeAndroidResourceSources mergeAndroidResourceSourcesStep =
         new MergeAndroidResourceSources(target, filesystem, ruleFinder, directories);
 
     ImmutableList<Step> steps =
         mergeAndroidResourceSourcesStep.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
+            FakeBuildContext.withSourcePathResolver(ruleFinder.getSourcePathResolver()),
+            new FakeBuildableContext());
     assertThat(
         steps,
         Matchers.contains(
@@ -132,7 +130,7 @@ public class MergeAndroidResourcesSourcesTest {
   }
 
   @Test
-  public void testStepExecution() throws IOException, InterruptedException {
+  public void testStepExecution() throws IOException {
     Path rootPath = tmp.getRoot().toPath();
     File outFolder = tmp.newFolder("out");
     File tmpFolder = tmp.newFolder("tmp");

@@ -20,16 +20,15 @@ import com.google.common.base.Strings;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.EnvironmentUtil;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
 public final class BuckWSServerPortUtils {
-  private static final int CONNECTION_FAILED_PORT = -1;
-
   private static final String SEARCH_FOR = "http.port=";
 
-  /** Returns the port number of Buck's HTTP server, if it can be determined, else a value < 0. */
+  /** Returns the port number of Buck's HTTP server, if it can be determined. */
   public static int getPort(Project project, String path)
       throws NumberFormatException, IOException, ExecutionException {
     String exec = BuckExecutableSettingsProvider.getInstance(project).resolveBuckExecutable();
@@ -41,6 +40,7 @@ public final class BuckWSServerPortUtils {
     GeneralCommandLine commandLine = new GeneralCommandLine();
     commandLine.setExePath(exec);
     commandLine.withWorkDirectory(path);
+    commandLine.withEnvironment(EnvironmentUtil.getEnvironmentMap());
     commandLine.addParameter("server");
     commandLine.addParameter("status");
     commandLine.addParameter("--http-port");
@@ -49,15 +49,17 @@ public final class BuckWSServerPortUtils {
     Process p = commandLine.createProcess();
     BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
 
-    int port = -2;
     String line;
-    while ((line = reader.readLine()) != null && port != CONNECTION_FAILED_PORT) {
+    while ((line = reader.readLine()) != null) {
       if (line.startsWith(SEARCH_FOR)) {
-        port = Integer.parseInt(line.substring(SEARCH_FOR.length()));
+        return Integer.parseInt(line.substring(SEARCH_FOR.length()));
       }
     }
-    return port;
+    throw new RuntimeException(
+        "Configured buck executable did not report a valid port string,"
+            + " ensure "
+            + commandLine.getCommandLineString()
+            + " can be run from "
+            + path);
   }
-
-  private BuckWSServerPortUtils() {}
 }

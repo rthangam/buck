@@ -29,7 +29,6 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
@@ -220,11 +219,8 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   }
 
   @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
+  public void updateBuildRuleResolver(BuildRuleResolver ruleResolver) {
+    this.inputRuleResolver = new DefaultInputRuleResolver(ruleResolver);
   }
 
   // -----------------------------------------------------------------------------------------------

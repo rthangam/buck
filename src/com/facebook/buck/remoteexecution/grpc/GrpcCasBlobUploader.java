@@ -21,14 +21,16 @@ import build.bazel.remote.execution.v2.BatchUpdateBlobsResponse;
 import build.bazel.remote.execution.v2.BatchUpdateBlobsResponse.Response;
 import build.bazel.remote.execution.v2.ContentAddressableStorageGrpc.ContentAddressableStorageFutureStub;
 import build.bazel.remote.execution.v2.FindMissingBlobsRequest;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.remoteexecution.CasBlobUploadEvent;
 import com.facebook.buck.remoteexecution.CasBlobUploader;
-import com.facebook.buck.remoteexecution.Protocol.Digest;
+import com.facebook.buck.remoteexecution.UploadDataSupplier;
+import com.facebook.buck.remoteexecution.event.CasBlobUploadEvent;
 import com.facebook.buck.remoteexecution.grpc.GrpcProtocol.GrpcDigest;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
+import com.facebook.buck.remoteexecution.proto.RemoteExecutionMetadata;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.Scope;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -46,8 +48,10 @@ public class GrpcCasBlobUploader implements CasBlobUploader {
   private final BuckEventBus buckEventBus;
 
   public GrpcCasBlobUploader(
-      ContentAddressableStorageFutureStub storageStub, BuckEventBus buckEventBus) {
-    this.storageStub = storageStub;
+      ContentAddressableStorageFutureStub storageStub,
+      BuckEventBus buckEventBus,
+      RemoteExecutionMetadata metadata) {
+    this.storageStub = GrpcHeaderHandler.wrapStubToSendMetadata(storageStub, metadata);
     this.buckEventBus = buckEventBus;
   }
 
@@ -56,16 +60,12 @@ public class GrpcCasBlobUploader implements CasBlobUploader {
     try {
       FindMissingBlobsRequest.Builder requestBuilder = FindMissingBlobsRequest.newBuilder();
       requiredDigests.forEach(digest -> requestBuilder.addBlobDigests((GrpcProtocol.get(digest))));
-      return storageStub
-          .findMissingBlobs(requestBuilder.build())
-          .get()
-          .getMissingBlobDigestsList()
+      return storageStub.findMissingBlobs(requestBuilder.build()).get().getMissingBlobDigestsList()
           .stream()
           .map(build.bazel.remote.execution.v2.Digest::getHash)
           .collect(ImmutableSet.toImmutableSet());
     } catch (InterruptedException | ExecutionException e) {
       Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
-      e.printStackTrace();
       throw new BuckUncheckedExecutionException(e);
     } catch (RuntimeException e) {
       throw e;
@@ -73,17 +73,17 @@ public class GrpcCasBlobUploader implements CasBlobUploader {
   }
 
   @Override
-  public ImmutableList<UploadResult> batchUpdateBlobs(ImmutableList<UploadData> blobs)
+  public ImmutableList<UploadResult> batchUpdateBlobs(ImmutableList<UploadDataSupplier> blobs)
       throws IOException {
-    long totalBlobSizeBytes = blobs.stream().mapToLong(blob -> blob.digest.getSize()).sum();
+    long totalBlobSizeBytes = blobs.stream().mapToLong(blob -> blob.getDigest().getSize()).sum();
     try (Scope unused =
         CasBlobUploadEvent.sendEvent(buckEventBus, blobs.size(), totalBlobSizeBytes)) {
       BatchUpdateBlobsRequest.Builder requestBuilder = BatchUpdateBlobsRequest.newBuilder();
-      for (UploadData blob : blobs) {
-        try (InputStream dataStream = blob.data.get()) {
+      for (UploadDataSupplier blob : blobs) {
+        try (InputStream dataStream = blob.get()) {
           requestBuilder.addRequests(
               BatchUpdateBlobsRequest.Request.newBuilder()
-                  .setDigest(GrpcProtocol.get(blob.digest))
+                  .setDigest(GrpcProtocol.get(blob.getDigest()))
                   .setData(ByteString.readFrom(dataStream)));
         }
       }
@@ -102,8 +102,9 @@ public class GrpcCasBlobUploader implements CasBlobUploader {
       MoreThrowables.throwIfInitialCauseInstanceOf(e, IOException.class);
       throw new BuckUncheckedExecutionException(
           e,
-          "When uploading a batch of blobs: <%s>.",
-          blobs.stream().map(b -> b.data.describe()).collect(Collectors.joining(">, <")));
+          "When uploading a batch of blobs: <%s>. Digests: %s.",
+          blobs.stream().map(b -> b.describe()).collect(Collectors.joining(">, <")),
+          blobs.stream().map(b -> b.getDigest().toString()).collect(Collectors.joining(" ")));
     }
   }
 }

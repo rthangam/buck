@@ -18,6 +18,7 @@ package com.facebook.buck.core.graph.transformation.executor.impl;
 
 import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
 import com.facebook.buck.core.graph.transformation.executor.DepsAwareTask;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareTask.DepsSupplier;
 import com.facebook.buck.core.graph.transformation.executor.impl.AbstractDepsAwareTask.TaskStatus;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.base.Verify;
@@ -26,6 +27,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Supplier;
@@ -50,22 +52,18 @@ public class JavaExecutorBackedDefaultDepsAwareExecutor<T>
   }
 
   /**
-   * Creates a {@link JavaExecutorBackedDefaultDepsAwareExecutor} from the given {@link
-   * ExecutorService}, maintaining up to the specified parallelism. It is up to the user to ensure
-   * that the backing {@link ExecutorService} can support the specified parallelism.
+   * Creates a {@link JavaExecutorBackedDefaultDepsAwareExecutor} with given {@code
+   * numberOfThreads}.
    */
-  public static <U> JavaExecutorBackedDefaultDepsAwareExecutor<U> from(
-      ExecutorService executorService) {
-
-    JavaExecutorBackedDefaultDepsAwareExecutor<U> executor =
-        new JavaExecutorBackedDefaultDepsAwareExecutor<>(executorService);
-
-    return executor;
+  public static <U> JavaExecutorBackedDefaultDepsAwareExecutor<U> of(int numberOfThreads) {
+    ExecutorService executorService = Executors.newFixedThreadPool(numberOfThreads);
+    return new JavaExecutorBackedDefaultDepsAwareExecutor<>(executorService);
   }
 
   @Override
   public void close() {
     isShutdown = true;
+    executorService.shutdownNow();
   }
 
   @Override
@@ -76,14 +74,16 @@ public class JavaExecutorBackedDefaultDepsAwareExecutor<T>
   @Override
   public DefaultDepsAwareTask<T> createTask(
       Callable<T> callable, Supplier<ImmutableSet<DefaultDepsAwareTask<T>>> depsSupplier) {
-    return DefaultDepsAwareTask.of(callable, depsSupplier);
+    return DefaultDepsAwareTask.of(
+        callable, DepsSupplier.of(ThrowingSupplier.fromSupplier(depsSupplier)));
   }
 
   @Override
   public DefaultDepsAwareTask<T> createThrowingTask(
       Callable<T> callable,
+      ThrowingSupplier<ImmutableSet<DefaultDepsAwareTask<T>>, Exception> prereqSupplier,
       ThrowingSupplier<ImmutableSet<DefaultDepsAwareTask<T>>, Exception> depsSupplier) {
-    return DefaultDepsAwareTask.ofThrowing(callable, depsSupplier);
+    return DefaultDepsAwareTask.of(callable, DepsSupplier.of(prereqSupplier, depsSupplier));
   }
 
   @Override
@@ -120,6 +120,20 @@ public class JavaExecutorBackedDefaultDepsAwareExecutor<T>
         });
   }
 
+  private <U> boolean checkTasksReadyOrSchedule(
+      ImmutableSet<DefaultDepsAwareTask<U>> tasksToCheck) {
+    boolean ret = true;
+    for (DefaultDepsAwareTask<?> task : tasksToCheck) {
+      if (task.getStatus() != TaskStatus.DONE) {
+        ret = false;
+        if (task.getStatus() == TaskStatus.NOT_SCHEDULED) {
+          submitTask(task);
+        }
+      }
+    }
+    return ret;
+  }
+
   private <U> void runTask(DefaultDepsAwareTask<U> task) throws Exception {
 
     /**
@@ -128,16 +142,12 @@ public class JavaExecutorBackedDefaultDepsAwareExecutor<T>
      * task has completed to prevent the task from being reran again.
      */
     Verify.verify(task.compareAndSetStatus(TaskStatus.SCHEDULED, TaskStatus.STARTED));
-    boolean depsReady = true;
-    for (DefaultDepsAwareTask<?> dep : task.getDependencies()) {
-      if (dep.getStatus() != TaskStatus.DONE) {
-        depsReady = false;
-        if (dep.getStatus() == TaskStatus.NOT_SCHEDULED) {
-          submitTask(dep);
-        }
-      }
+    if (!checkTasksReadyOrSchedule(task.getPrereqs())) {
+      Verify.verify(task.compareAndSetStatus(TaskStatus.STARTED, TaskStatus.NOT_SCHEDULED));
+      submitTask(task);
+      return;
     }
-    if (!depsReady) {
+    if (!checkTasksReadyOrSchedule(task.getDependencies())) {
       Verify.verify(task.compareAndSetStatus(TaskStatus.STARTED, TaskStatus.NOT_SCHEDULED));
       submitTask(task);
       return;

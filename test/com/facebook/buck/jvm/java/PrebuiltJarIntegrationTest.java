@@ -45,7 +45,7 @@ public class PrebuiltJarIntegrationTest {
   @Rule public TemporaryPaths temp = new TemporaryPaths();
 
   @Test
-  public void outputIsPlacedInCorrectFolder() throws IOException, InterruptedException {
+  public void outputIsPlacedInCorrectFolder() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "prebuilt", temp);
     workspace.setUp();
@@ -74,12 +74,12 @@ public class PrebuiltJarIntegrationTest {
     result.assertSuccess();
 
     BuckBuildLog buildLog = workspace.getBuildLog();
-    buildLog.assertTargetBuiltLocally(target.getFullyQualifiedName());
+    buildLog.assertTargetBuiltLocally(target);
 
     result = workspace.runBuckBuild("//:depends_on_jar");
     result.assertSuccess();
     buildLog = workspace.getBuildLog();
-    buildLog.assertTargetHadMatchingRuleKey(target.getFullyQualifiedName());
+    buildLog.assertTargetHadMatchingRuleKey(target);
 
     // We expect the binary jar to have a different hash to the stub jar.
     Path binaryJar = workspace.getPath("junit.jar");

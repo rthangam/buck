@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.kotlin;
 
 import static com.google.common.collect.Iterables.transform;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -26,7 +27,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -155,8 +155,7 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
             .build();
 
     Set<File> compilerIdPaths =
-        compilerClassPath
-            .stream()
+        compilerClassPath.stream()
             .map(p -> ((PathSourcePath) p).getRelativePath())
             .map(Path::toFile)
             .collect(Collectors.toSet());
@@ -196,8 +195,7 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
           classLoaderCache.getClassLoaderForClassPath(
               SynchronizedToolProvider.getSystemToolClassLoader(),
               ImmutableList.copyOf(
-                  compilerClassPath
-                      .stream()
+                  compilerClassPath.stream()
                       .map(p -> ((PathSourcePath) p).getRelativePath())
                       .map(PATH_TO_URL)
                       .iterator()));

@@ -17,7 +17,7 @@
 package com.facebook.buck.core.rules.configsetting;
 
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.platform.ConstraintResolver;
 import com.facebook.buck.core.model.platform.ConstraintValue;
 import com.facebook.buck.core.model.platform.Platform;
@@ -37,14 +37,14 @@ import java.util.Optional;
  */
 public class ConfigSettingSelectable implements Selectable {
 
-  private final BuildTarget buildTarget;
+  private final UnconfiguredBuildTargetView buildTarget;
   private final ImmutableMap<String, String> values;
-  private final ImmutableSet<BuildTarget> constraintValues;
+  private final ImmutableSet<UnconfiguredBuildTargetView> constraintValues;
 
   public ConfigSettingSelectable(
-      BuildTarget buildTarget,
+      UnconfiguredBuildTargetView buildTarget,
       ImmutableMap<String, String> values,
-      ImmutableSet<BuildTarget> constraintValues) {
+      ImmutableSet<UnconfiguredBuildTargetView> constraintValues) {
     this.buildTarget = buildTarget;
     this.values = values;
     this.constraintValues = constraintValues;
@@ -57,7 +57,7 @@ public class ConfigSettingSelectable implements Selectable {
     return calculateMatches(
         context.getBuckConfig(),
         context.getConstraintResolver(),
-        context.getTargetPlatform(),
+        context.getPlatformProvider().getTargetPlatform(context.getTargetConfiguration()),
         constraintValues,
         values);
   }
@@ -98,7 +98,7 @@ public class ConfigSettingSelectable implements Selectable {
   }
 
   @Override
-  public BuildTarget getBuildTarget() {
+  public UnconfiguredBuildTargetView getBuildTarget() {
     return buildTarget;
   }
 
@@ -106,7 +106,7 @@ public class ConfigSettingSelectable implements Selectable {
       BuckConfig buckConfig,
       ConstraintResolver constraintResolver,
       Platform targetPlatform,
-      Collection<BuildTarget> constraintValuesTargets,
+      Collection<UnconfiguredBuildTargetView> constraintValuesTargets,
       ImmutableMap<String, String> values) {
     for (Map.Entry<String, String> entry : values.entrySet()) {
       if (!matches(buckConfig, entry.getKey(), entry.getValue())) {
@@ -114,8 +114,7 @@ public class ConfigSettingSelectable implements Selectable {
       }
     }
     ImmutableList<ConstraintValue> constraintValues =
-        constraintValuesTargets
-            .stream()
+        constraintValuesTargets.stream()
             .map(constraintResolver::getConstraintValue)
             .collect(ImmutableList.toImmutableList());
     return targetPlatform.matchesAll(constraintValues);

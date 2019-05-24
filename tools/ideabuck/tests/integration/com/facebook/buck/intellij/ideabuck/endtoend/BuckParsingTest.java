@@ -23,12 +23,12 @@ import com.intellij.testFramework.ParsingTestCase;
 public class BuckParsingTest extends ParsingTestCase {
 
   public BuckParsingTest() {
-    super("psi", BuckFileUtil.getBuildFileName(), new BuckParserDefinition());
+    super("buck", BuckFileUtil.getBuildFileName(), new BuckParserDefinition());
   }
 
   @Override
   protected String getTestDataPath() {
-    return "tests/testdata";
+    return "tests/testdata/psi";
   }
 
   @Override
@@ -80,6 +80,18 @@ public class BuckParsingTest extends ParsingTestCase {
     doTest();
   }
 
+  public void testLineComments2() {
+    doTest();
+  }
+
+  public void testLineComments3() {
+    doTest();
+  }
+
+  public void testLineContinuations() {
+    doTest();
+  }
+
   public void testTwoRules1() {
     doTest();
   }
@@ -88,7 +100,31 @@ public class BuckParsingTest extends ParsingTestCase {
     doTest();
   }
 
+  public void testStrings() {
+    doTest();
+  }
+
+  public void testIntegers() {
+    doTest();
+  }
+
   public void testAssignment() {
+    doTest();
+  }
+
+  public void testAugmentedAssignment() {
+    doTest();
+  }
+
+  public void testComprehensions() {
+    doTest();
+  }
+
+  public void testSlicing() {
+    doTest();
+  }
+
+  public void testExpressions() {
     doTest();
   }
 

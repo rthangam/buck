@@ -63,7 +63,7 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
     AssumeAndroidPlatform.assumeBundleBuildIsSupported();
@@ -84,7 +84,7 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     Path aab =
         workspace.getPath(
             BuildTargetPaths.getGenPath(
-                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.apk"));
+                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.aab"));
     Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
     try (ZipInputStream is = new ZipInputStream(Files.newInputStream(aab))) {
       for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
@@ -156,7 +156,7 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testAppBundleHaveCorrectAaptMode() throws IOException {
+  public void testAppBundleHaveCorrectAaptMode() {
     String target = "//apps/sample:app_bundle_wrong_aapt_mode";
 
     thrown.expect(HumanReadableException.class);
@@ -175,7 +175,7 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     Path aab =
         workspace.getPath(
             BuildTargetPaths.getGenPath(
-                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.apk"));
+                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.aab"));
 
     ZipInspector zipInspector = new ZipInspector(aab);
     zipInspector.assertFileExists("small_with_no_resource_deps/assets.pb");

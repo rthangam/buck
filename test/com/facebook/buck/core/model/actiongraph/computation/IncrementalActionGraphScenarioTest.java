@@ -31,7 +31,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
@@ -39,14 +39,12 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
@@ -58,9 +56,10 @@ import com.facebook.buck.cxx.CxxTestBuilder;
 import com.facebook.buck.cxx.CxxTestUtils;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.cxx.SharedLibraryInterfacePlatforms;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
+import com.facebook.buck.cxx.toolchain.impl.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.event.BuckEventBus;
@@ -113,6 +112,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class IncrementalActionGraphScenarioTest {
+
+  private static final int NUMBER_OF_THREADS = ForkJoinPool.commonPool().getParallelism();
+
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
   private static final PythonPlatform PY2 = createPy2Platform(Optional.empty());
@@ -376,8 +378,9 @@ public class IncrementalActionGraphScenarioTest {
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(binaryTarget, binaryTarget2)),
-                new ForkJoinPool(),
+                NUMBER_OF_THREADS,
                 new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetViewFactory(),
                 20)
             .getTargetGraph();
     ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
@@ -428,10 +431,12 @@ public class IncrementalActionGraphScenarioTest {
             .build();
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
 
-    Optional<CxxPlatform> testPlatform =
-        SharedLibraryInterfacePlatforms.getTestPlatform(filesystem, buckConfig, cxxBuckConfig);
+    Optional<UnresolvedCxxPlatform> testPlatform =
+        SharedLibraryInterfacePlatforms.getTestPlatform(filesystem, buckConfig, cxxBuckConfig)
+            .map(StaticUnresolvedCxxPlatform::new);
     assumeTrue(testPlatform.isPresent());
-    FlavorDomain cxxFlavorDomain = FlavorDomain.of("C/C++ Platform", testPlatform.get());
+    FlavorDomain<UnresolvedCxxPlatform> cxxFlavorDomain =
+        FlavorDomain.of("C/C++ Platform", testPlatform.get());
 
     BuildTarget sharedLibraryTarget = BuildTargetFactory.newInstance("//:shared_lib");
     CxxLibraryBuilder sharedLibraryBuilder =
@@ -548,8 +553,9 @@ public class IncrementalActionGraphScenarioTest {
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(compilationDatabaseTarget)),
-                new ForkJoinPool(),
+                NUMBER_OF_THREADS,
                 new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetViewFactory(),
                 20)
             .getTargetGraph();
 
@@ -573,8 +579,9 @@ public class IncrementalActionGraphScenarioTest {
                     newUnversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     newUnversionedTargetGraph, ImmutableSet.of(binaryTarget)),
-                new ForkJoinPool(),
+                NUMBER_OF_THREADS,
                 new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetViewFactory(),
                 20)
             .getTargetGraph();
 
@@ -1167,9 +1174,10 @@ public class IncrementalActionGraphScenarioTest {
 
   @Test
   public void testPrebuiltCxxLibrary() {
-    CxxPlatform plat1 = CxxPlatformUtils.DEFAULT_PLATFORM;
-    CxxPlatform plat2 = CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("other"));
-    FlavorDomain<CxxPlatform> platforms = FlavorDomain.of("C/C++ Platform", plat1, plat2);
+    UnresolvedCxxPlatform plat1 = CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM;
+    UnresolvedCxxPlatform plat2 =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(InternalFlavor.of("other"));
+    FlavorDomain<UnresolvedCxxPlatform> platforms = FlavorDomain.of("C/C++ Platform", plat1, plat2);
 
     // Create an action graph with two different binaries using two different platforms, both
     // consuming the same location macro exported by a library dependency.
@@ -1209,7 +1217,7 @@ public class IncrementalActionGraphScenarioTest {
   private void assertBuildRulesSame(
       ActionGraphAndBuilder expectedActionGraph,
       ActionGraphAndBuilder actualActionGraph,
-      UnflavoredBuildTarget unflavoredTarget) {
+      UnflavoredBuildTargetView unflavoredTarget) {
     assertBuildRulesSame(
         filterRules(expectedActionGraph, unflavoredTarget),
         filterRules(actualActionGraph, unflavoredTarget));
@@ -1244,7 +1252,7 @@ public class IncrementalActionGraphScenarioTest {
   private void assertCommonBuildRulesNotSame(
       ActionGraphAndBuilder lastActionGraph,
       ActionGraphAndBuilder newActionGraph,
-      UnflavoredBuildTarget unflavoredTarget) {
+      UnflavoredBuildTargetView unflavoredTarget) {
     ImmutableMap<BuildRule, BuildRule> lastBuildRuleMap =
         buildBuildRuleMap(filterRules(lastActionGraph, unflavoredTarget));
     ImmutableMap<BuildRule, BuildRule> newBuildRuleMap =
@@ -1256,7 +1264,7 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private Iterable<BuildRule> filterRules(
-      ActionGraphAndBuilder actionGraph, UnflavoredBuildTarget unflavoredTarget) {
+      ActionGraphAndBuilder actionGraph, UnflavoredBuildTargetView unflavoredTarget) {
     return RichStream.from(actionGraph.getActionGraph().getNodes())
         .filter(
             x ->
@@ -1269,7 +1277,9 @@ public class IncrementalActionGraphScenarioTest {
 
   private void queryTransitiveDeps(ActionGraphAndBuilder result) {
     Set<BuildRule> visited = new HashSet<>();
-    RuleDepsCache depsCache = new DefaultRuleDepsCache(result.getActionGraphBuilder());
+    RuleDepsCache depsCache =
+        new DefaultRuleDepsCache(
+            result.getActionGraphBuilder(), result.getBuildEngineActionToBuildRuleResolver());
     for (BuildRule buildRule : result.getActionGraph().getNodes()) {
       queryTransitiveDeps(buildRule, depsCache, visited);
     }
@@ -1295,10 +1305,9 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private ImmutableMap<BuildRule, RuleKey> getRuleKeys(ActionGraphAndBuilder result) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getActionGraphBuilder());
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ContentAgnosticRuleKeyFactory factory =
-        new ContentAgnosticRuleKeyFactory(fieldLoader, pathResolver, ruleFinder, Optional.empty());
+        new ContentAgnosticRuleKeyFactory(
+            fieldLoader, result.getActionGraphBuilder(), Optional.empty());
 
     ImmutableMap.Builder<BuildRule, RuleKey> builder = ImmutableMap.builder();
     for (BuildRule rule : result.getActionGraph().getNodes()) {
@@ -1342,14 +1351,16 @@ public class IncrementalActionGraphScenarioTest {
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py2"),
-        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
   private static PythonPlatform createPy3Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py3"),
-        new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+        new PythonEnvironment(
+            Paths.get("python3"), PythonVersion.of("CPython", "3.5"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 }

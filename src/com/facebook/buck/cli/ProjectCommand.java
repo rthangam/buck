@@ -64,7 +64,7 @@ public class ProjectCommand extends AbstractCommand implements PluginBasedComman
       name = "--ide",
       usage =
           "The type of IDE for which to generate a project. You may specify it in the "
-              + ".buckconfig file. Please refer to https://buckbuild.com/concept/buckconfig.html#project")
+              + ".buckconfig file. Please refer to https://buck.build/concept/buckconfig.html#project")
   @Nullable
   private String ide = null;
 
@@ -131,9 +131,7 @@ public class ProjectCommand extends AbstractCommand implements PluginBasedComman
               .setArgsParser(
                   arguments ->
                       parseArgumentsAsTargetNodeSpecs(
-                          params.getCell().getCellPathResolver(),
-                          params.getBuckConfig(),
-                          arguments))
+                          params.getCell(), params.getBuckConfig(), arguments))
               .setCommandRunnerParams(params)
               .setDryRun(dryRun)
               .setEnableParserProfiling(getEnableParserProfiling())

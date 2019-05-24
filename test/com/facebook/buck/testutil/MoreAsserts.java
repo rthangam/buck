@@ -16,15 +16,19 @@
 
 package com.facebook.buck.testutil;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.RichStream;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,7 +45,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import javax.annotation.Nullable;
+import org.hamcrest.Matcher;
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 
 /** Additional assertions that delegate to JUnit assertions, but with better error messages. */
@@ -204,8 +211,7 @@ public final class MoreAsserts {
       List<Step> observedSteps,
       ExecutionContext executionContext) {
     ImmutableList<String> commands =
-        observedSteps
-            .stream()
+        observedSteps.stream()
             .map(step -> step.getDescription(executionContext))
             .collect(ImmutableList.toImmutableList());
     assertListEquals(userMessage, expectedStepDescriptions, commands);
@@ -218,8 +224,7 @@ public final class MoreAsserts {
   public static void assertStepsNames(
       String userMessage, List<String> expectedStepDescriptions, List<Step> observedSteps) {
     ImmutableList<String> commands =
-        observedSteps
-            .stream()
+        observedSteps.stream()
             .map(step -> step.getShortName())
             .collect(ImmutableList.toImmutableList());
     assertListEquals(userMessage, expectedStepDescriptions, commands);
@@ -314,5 +319,30 @@ public final class MoreAsserts {
 
   private static void failWith(@Nullable String userMessage, String message) {
     fail(prefixWithUserMessage(userMessage, message));
+  }
+
+  public static void assertJsonMatches(String expectedJson, String actualJson) throws IOException {
+    assertJsonMatches(expectedJson, actualJson, Matchers::equalTo, "JSON outputs are not equal");
+  }
+
+  public static void assertJsonNotMatches(String expectedJson, String actualJson)
+      throws IOException {
+    assertJsonMatches(expectedJson, actualJson, s -> not(equalTo(s)), "JSON outputs are equal");
+  }
+
+  public static void assertJsonMatches(
+      String expectedJson,
+      String actualJson,
+      Function<String, Matcher<String>> matcherGenerator,
+      String message)
+      throws IOException {
+    ObjectMapper mapper = new ObjectMapper();
+    Object observedValue = mapper.readValue(actualJson, Object.class);
+    String actual = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(observedValue);
+
+    Object expectedValue = mapper.readValue(expectedJson, Object.class);
+    String expected = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(expectedValue);
+
+    assertThat(message, actual, matcherGenerator.apply(expected));
   }
 }

@@ -19,7 +19,6 @@ import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.base.Preconditions;
 import java.nio.file.Path;
@@ -43,19 +42,25 @@ abstract class AbstractDependencyFileEntry {
         !pathWithinArchive().isPresent() || !pathWithinArchive().get().isAbsolute());
   }
 
+  /**
+   * Gets the path to the file. This would be the value of DependencyFileEntry.pathToFile() if the
+   * SourcePath is converted to a DependencyFileEntry.
+   */
+  public static Path getPathToFile(SourcePathResolver resolver, SourcePath sourcePath) {
+    if (sourcePath instanceof ArchiveMemberSourcePath) {
+      return resolver.getRelativePath(
+          ((ArchiveMemberSourcePath) sourcePath).getArchiveSourcePath());
+    }
+    return resolver.getRelativePath(sourcePath);
+  }
+
   public static DependencyFileEntry fromSourcePath(
       SourcePath sourcePath, SourcePathResolver resolver) {
     DependencyFileEntry.Builder builder = DependencyFileEntry.builder();
+    builder.setPathToFile(getPathToFile(resolver, sourcePath));
     if (sourcePath instanceof ArchiveMemberSourcePath) {
-      ArchiveMemberSourcePath archiveMemberSourcePath = (ArchiveMemberSourcePath) sourcePath;
-      ArchiveMemberPath relativeArchiveMemberPath =
-          resolver.getRelativeArchiveMemberPath(archiveMemberSourcePath);
-      builder.setPathToFile(relativeArchiveMemberPath.getArchivePath());
-      builder.setPathWithinArchive(relativeArchiveMemberPath.getMemberPath());
-    } else {
-      builder.setPathToFile(resolver.getRelativePath(sourcePath));
+      builder.setPathWithinArchive(((ArchiveMemberSourcePath) sourcePath).getMemberPath());
     }
-
     return builder.build();
   }
 }

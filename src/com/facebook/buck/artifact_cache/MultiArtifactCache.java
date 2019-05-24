@@ -37,6 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nullable;
 
 /**
@@ -53,8 +54,7 @@ public class MultiArtifactCache implements ArtifactCache {
   public MultiArtifactCache(ImmutableList<ArtifactCache> artifactCaches) {
     this.artifactCaches = artifactCaches;
     this.writableArtifactCaches =
-        artifactCaches
-            .stream()
+        artifactCaches.stream()
             .filter(c -> c.getCacheReadMode().equals(CacheReadMode.READWRITE))
             .collect(ImmutableList.toImmutableList());
     this.isStoreSupported = this.writableArtifactCaches.size() > 0;
@@ -69,8 +69,8 @@ public class MultiArtifactCache implements ArtifactCache {
   public ListenableFuture<CacheResult> fetchAsync(
       @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     ListenableFuture<CacheResult> cacheResult = Futures.immediateFuture(CacheResult.miss());
-    // This is the list of higher-priority caches that we should write the artifact to.
-    ImmutableList.Builder<ArtifactCache> cachesToFill = ImmutableList.builder();
+    AtomicReference<ArtifactCache> lastCache = new AtomicReference<>();
+
     for (ArtifactCache artifactCache : artifactCaches) {
       cacheResult =
           Futures.transformAsync(
@@ -79,9 +79,8 @@ public class MultiArtifactCache implements ArtifactCache {
                 if (result.getType().isSuccess()) {
                   return Futures.immediateFuture(result);
                 }
-                if (artifactCache.getCacheReadMode().isWritable()) {
-                  cachesToFill.add(artifactCache);
-                }
+
+                lastCache.set(artifactCache);
                 return artifactCache.fetchAsync(target, ruleKey, output);
               },
               MoreExecutors.directExecutor());
@@ -94,10 +93,29 @@ public class MultiArtifactCache implements ArtifactCache {
           if (!result.getType().isSuccess()) {
             return result;
           }
-          storeToCaches(
-              cachesToFill.build(),
-              ArtifactInfo.builder().addRuleKeys(ruleKey).setMetadata(result.getMetadata()).build(),
-              BorrowablePath.notBorrowablePath(output.getUnchecked()));
+
+          ImmutableList.Builder<ArtifactCache> builder = ImmutableList.builder();
+          for (ArtifactCache artifactCache : artifactCaches) {
+            if (artifactCache == lastCache.get()) {
+              break;
+            }
+
+            if (artifactCache.getCacheReadMode().isWritable()) {
+              builder.add(artifactCache);
+            }
+          }
+
+          ImmutableList<ArtifactCache> cachesToFill = builder.build();
+          if (!cachesToFill.isEmpty()) {
+            storeToCaches(
+                cachesToFill,
+                ArtifactInfo.builder()
+                    .addRuleKeys(ruleKey)
+                    .setMetadata(result.getMetadata())
+                    .setBuildTarget(Optional.ofNullable(target))
+                    .build(),
+                BorrowablePath.notBorrowablePath(output.getUnchecked()));
+          }
           return result;
         },
         MoreExecutors.directExecutor());
@@ -122,7 +140,8 @@ public class MultiArtifactCache implements ArtifactCache {
     }
 
     // Aggregate future to ensure all store operations have completed.
-    return Futures.transform(Futures.allAsList(storeFutures), Functions.constant(null));
+    return Futures.transform(
+        Futures.allAsList(storeFutures), Functions.constant(null), MoreExecutors.directExecutor());
   }
 
   /** Store the artifact to all encapsulated ArtifactCaches. */
@@ -152,7 +171,8 @@ public class MultiArtifactCache implements ArtifactCache {
     }
 
     // Aggregate future to ensure all store operations have completed.
-    return Futures.transform(Futures.allAsList(storeFutures), Functions.constant(null));
+    return Futures.transform(
+        Futures.allAsList(storeFutures), Functions.constant(null), MoreExecutors.directExecutor());
   }
 
   @Override
@@ -172,9 +192,7 @@ public class MultiArtifactCache implements ArtifactCache {
               cacheResultFuture,
               mergedResults -> {
                 ImmutableSet<RuleKey> missingKeys =
-                    mergedResults
-                        .entrySet()
-                        .stream()
+                    mergedResults.entrySet().stream()
                         .filter(e -> !e.getValue().getType().isSuccess())
                         .map(Map.Entry::getKey)
                         .collect(ImmutableSet.toImmutableSet());

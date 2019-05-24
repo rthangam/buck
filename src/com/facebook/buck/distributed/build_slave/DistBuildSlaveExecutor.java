@@ -21,13 +21,14 @@ import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.command.LocalBuildExecutor;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.model.impl.HostTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -39,7 +40,6 @@ import com.facebook.buck.distributed.thrift.RemoteCommand;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.util.concurrent.Futures;
@@ -101,7 +101,8 @@ public class DistBuildSlaveExecutor {
               args.getExecutorService(),
               args.getBuckEventBus(),
               args.getState(),
-              args.getRootCell()));
+              args.getRootCell(),
+              args.getUnconfiguredBuildTargetFactory()));
     }
 
     Optional<BuildId> clientBuildId = fetchClientBuildId();
@@ -135,19 +136,20 @@ public class DistBuildSlaveExecutor {
                   initializer.getDelegateAndGraphs(),
                   graphs -> {
                     SourcePathRuleFinder ruleFinder =
-                        new SourcePathRuleFinder(
-                            graphs.getActionGraphAndBuilder().getActionGraphBuilder());
+                        graphs.getActionGraphAndBuilder().getActionGraphBuilder();
                     return new ParallelRuleKeyCalculator<RuleKey>(
                         args.getExecutorService(),
                         new DefaultRuleKeyFactory(
                             new RuleKeyFieldLoader(args.getRuleKeyConfiguration()),
                             graphs.getCachingBuildEngineDelegate().getFileHashCache(),
-                            DefaultSourcePathResolver.from(ruleFinder),
                             ruleFinder,
                             args.getRuleKeyCacheScope().getCache(),
                             Optional.empty()),
                         new DefaultRuleDepsCache(
-                            graphs.getActionGraphAndBuilder().getActionGraphBuilder()),
+                            graphs.getActionGraphAndBuilder().getActionGraphBuilder(),
+                            graphs
+                                .getActionGraphAndBuilder()
+                                .getBuildEngineActionToBuildRuleResolver()),
                         (buckEventBus, rule) -> () -> {});
                   },
                   MoreExecutors.directExecutor()),
@@ -292,19 +294,25 @@ public class DistBuildSlaveExecutor {
                 // Only the client side build needs to synchronize, not the slave.
                 // (as the co-ordinator synchronizes artifacts between slaves).
                 new NoOpRemoteBuildRuleCompletionWaiter(),
-                args.getMetadataProvider()),
+                args.getMetadataProvider(),
+                args.getUnconfiguredBuildTargetFactory(),
+                HostTargetConfiguration.INSTANCE,
+                args.getTargetConfigurationSerializer(),
+                false),
         args.getExecutorService());
   }
 
   private List<BuildTarget> getTopLevelTargetsToBuild() {
-    return args.getState()
-        .getRemoteState()
-        .getTopLevelTargets()
-        .stream()
+    UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory =
+        args.getUnconfiguredBuildTargetFactory();
+    return args.getState().getRemoteState().getTopLevelTargets().stream()
         .map(
             target ->
-                BuildTargetParser.INSTANCE.parseFullyQualified(
+                unconfiguredBuildTargetFactory.create(
                     args.getRootCell().getCellPathResolver(), target))
+        .map(
+            unconfiguredBuildTarget ->
+                unconfiguredBuildTarget.configure(HostTargetConfiguration.INSTANCE))
         .collect(Collectors.toList());
   }
 }

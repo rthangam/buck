@@ -39,6 +39,14 @@ go_test(
 )
 
 go_test(
+    name = "test-with-system-env",
+    srcs = [
+        "env_test.go",
+    ],
+    deps = [":base"],
+)
+
+go_test(
     name = "test-success-internal",
     srcs = ["lib_test.go"],
     library = ":lib",
@@ -65,6 +73,27 @@ go_test(
     name = "test-with-resources",
     srcs = ["resources_test.go"],
     resources = ["testdata/input"],
+)
+
+go_test(
+    name = "test-with-resources-directory",
+    srcs = ["resources_test.go"],
+    resources = ["testdata"],
+)
+
+go_test(
+    name = "test-with-resources-2directory",
+    srcs = ["resources_test_2level.go"],
+    resources = ["testdata"],
+)
+
+go_test(
+    name = "test-with-resources-2directory-2resources",
+    srcs = ["resources_test_2level.go"],
+    resources = [
+        "testdata/level2",
+        "testdata/level2bis",
+    ],
 )
 
 go_test(

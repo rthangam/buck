@@ -29,13 +29,11 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
@@ -78,12 +76,12 @@ public class JavaBinaryDescription
     return JavaBinaryDescriptionArg.class;
   }
 
-  private CxxPlatform getCxxPlatform(AbstractJavaBinaryDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(AbstractJavaBinaryDescriptionArg args) {
     return args.getDefaultCxxPlatform()
         .map(
             toolchainProvider
                     .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                    .getCxxPlatforms()
+                    .getUnresolvedCxxPlatforms()
                 ::getValue)
         .orElse(
             toolchainProvider
@@ -99,10 +97,11 @@ public class JavaBinaryDescription
       JavaBinaryDescriptionArg args) {
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ImmutableMap<String, SourcePath> nativeLibraries =
         JavaLibraryRules.getNativeLibraries(
-            params.getBuildDeps(), getCxxPlatform(args), context.getActionGraphBuilder());
+            params.getBuildDeps(),
+            getCxxPlatform(args).resolve(graphBuilder, buildTarget.getTargetConfiguration()),
+            context.getActionGraphBuilder());
     BuildTarget binaryBuildTarget = buildTarget;
 
     // If we're packaging native libraries, we'll build the binary JAR in a separate rule and
@@ -123,7 +122,9 @@ public class JavaBinaryDescription
             binaryBuildTarget,
             projectFilesystem,
             params.copyAppendingExtraDeps(transitiveClasspathDeps),
-            javaOptions.get().getJavaRuntimeLauncher(graphBuilder),
+            javaOptions
+                .get()
+                .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
             args.getMainClass().orElse(null),
             args.getManifestFile().orElse(null),
             args.getMergeManifests().orElse(true),
@@ -151,20 +152,22 @@ public class JavaBinaryDescription
               params.copyAppendingExtraDeps(
                   Suppliers.<Iterable<BuildRule>>ofInstance(
                       Iterables.concat(
-                          ruleFinder.filterBuildRuleInputs(
+                          graphBuilder.filterBuildRuleInputs(
                               ImmutableList.<SourcePath>builder()
                                   .add(innerJar)
                                   .addAll(nativeLibraries.values())
                                   .build()),
-                          javacFactory.getBuildDeps(ruleFinder)))),
-              javacFactory.create(ruleFinder, null),
+                          javacFactory.getBuildDeps(graphBuilder)))),
+              javacFactory.create(graphBuilder, null),
               toolchainProvider
                   .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                   .getJavacOptions(),
               innerJar,
               javaBinary,
               nativeLibraries,
-              javaOptions.get().getJavaRuntimeLauncher(graphBuilder));
+              javaOptions
+                  .get()
+                  .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()));
     }
 
     return rule;
@@ -178,9 +181,11 @@ public class JavaBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatform(constructorArg)));
+        getCxxPlatform(constructorArg).getParseTimeDeps(buildTarget.getTargetConfiguration()));
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   @BuckStyleImmutable

@@ -18,6 +18,7 @@ package com.facebook.buck.cxx.toolchain.nativelink;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -141,7 +142,7 @@ public class NativeLinkables {
         nativeLinkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform, graphBuilder);
 
     boolean shouldTraverse;
-    switch (nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder)) {
+    switch (nativeLinkable.getPreferredLinkage(cxxPlatform)) {
       case ANY:
         shouldTraverse = linkStyle != Linker.LinkableDepType.SHARED;
         break;
@@ -221,10 +222,11 @@ public class NativeLinkables {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType linkStyle,
       NativeLinkable nativeLinkable,
-      ActionGraphBuilder graphBuilder) {
-    NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
+    NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform);
     return nativeLinkable.getNativeLinkableInput(
-        cxxPlatform, getLinkStyle(link, linkStyle), graphBuilder);
+        cxxPlatform, getLinkStyle(link, linkStyle), graphBuilder, targetConfiguration);
   }
 
   /**
@@ -235,6 +237,7 @@ public class NativeLinkables {
   public static <T> NativeLinkableInput getTransitiveNativeLinkableInput(
       CxxPlatform cxxPlatform,
       ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration,
       Iterable<? extends T> inputs,
       Linker.LinkableDepType depType,
       Function<? super T, Optional<Iterable<? extends T>>> passthrough) {
@@ -246,7 +249,8 @@ public class NativeLinkables {
     ImmutableList.Builder<NativeLinkableInput> nativeLinkableInputs = ImmutableList.builder();
     for (NativeLinkable nativeLinkable : nativeLinkables) {
       nativeLinkableInputs.add(
-          getNativeLinkableInput(cxxPlatform, depType, nativeLinkable, graphBuilder));
+          getNativeLinkableInput(
+              cxxPlatform, depType, nativeLinkable, graphBuilder, targetConfiguration));
     }
     return NativeLinkableInput.concat(nativeLinkableInputs.build());
   }
@@ -305,13 +309,10 @@ public class NativeLinkables {
         getTransitiveNativeLinkables(cxxPlatform, graphBuilder, roots.values());
 
     SharedLibrariesBuilder builder = new SharedLibrariesBuilder();
-    nativeLinkables
-        .entrySet()
-        .stream()
+    nativeLinkables.entrySet().stream()
         .filter(
             e ->
-                e.getValue().getPreferredLinkage(cxxPlatform, graphBuilder)
-                        != NativeLinkable.Linkage.STATIC
+                e.getValue().getPreferredLinkage(cxxPlatform) != NativeLinkable.Linkage.STATIC
                     || (alwaysIncludeRoots && roots.containsKey(e.getKey())))
         .forEach(e -> builder.add(cxxPlatform, e.getValue(), graphBuilder));
     return builder.build();

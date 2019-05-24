@@ -34,7 +34,7 @@ import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.facebook.buck.rules.visibility.VisibilityPatterns;
+import com.facebook.buck.rules.visibility.parser.VisibilityPatterns;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
@@ -117,7 +117,12 @@ public class DefaultParserTargetNodeFactory
     BaseDescription<?> description = knownRuleTypes.getDescription(buildRuleType);
 
     builtTargetVerifier.verifyBuildTarget(
-        cell, buildRuleType, buildFile, target, description, rawNode);
+        cell,
+        buildRuleType,
+        buildFile,
+        target.getUnconfiguredBuildTargetView(),
+        description,
+        rawNode);
 
     Preconditions.checkState(cell.equals(cell.getCell(target)));
     Object constructorArg;
@@ -137,10 +142,16 @@ public class DefaultParserTargetNodeFactory
                 rawNode);
         visibilityPatterns =
             VisibilityPatterns.createFromStringList(
-                cell.getCellPathResolver(), "visibility", rawNode.get("visibility"), target);
+                cell.getCellPathResolver(),
+                "visibility",
+                rawNode.get("visibility"),
+                target.getUnconfiguredBuildTargetView().getData());
         withinViewPatterns =
             VisibilityPatterns.createFromStringList(
-                cell.getCellPathResolver(), "within_view", rawNode.get("within_view"), target);
+                cell.getCellPathResolver(),
+                "within_view",
+                rawNode.get("within_view"),
+                target.getUnconfiguredBuildTargetView().getData());
       }
 
       return createTargetNodeFromObject(

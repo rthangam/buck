@@ -18,7 +18,7 @@ package com.facebook.buck.util.cache.impl;
 
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.ArchiveMemberPath;
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -58,8 +58,7 @@ public class StackedFileHashCacheTest {
 
   @Parameterized.Parameters(name = "{0}")
   public static Collection<Object[]> data() {
-    return EnumSet.allOf(FileHashCacheMode.class)
-        .stream()
+    return EnumSet.allOf(FileHashCacheMode.class).stream()
         .map(v -> new Object[] {v})
         .collect(ImmutableList.toImmutableList());
   }
@@ -112,7 +111,8 @@ public class StackedFileHashCacheTest {
     ProjectFileHashCache innerCache =
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
-    cache.get(fullArchiveMemberPath);
+    cache.getForArchiveMember(
+        fullArchiveMemberPath.getArchivePath(), fullArchiveMemberPath.getMemberPath());
     assertTrue(innerCache.willGet(archiveMemberPath));
   }
 
@@ -129,7 +129,8 @@ public class StackedFileHashCacheTest {
     ProjectFileHashCache innerCache =
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
-    cache.get(filesystem, archiveMemberPath);
+    cache.getForArchiveMember(
+        filesystem, archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
     assertTrue(innerCache.willGet(archiveMemberPath));
   }
 
@@ -194,7 +195,9 @@ public class StackedFileHashCacheTest {
         archiveMemberPath.withArchivePath(filesystem2.resolve(archiveMemberPath.getArchivePath()));
     StackedFileHashCache cache =
         new StackedFileHashCache(ImmutableList.of(innerCache, innerCache2));
-    cache.get(fullArchiveMemberPath);
+
+    cache.getForArchiveMember(
+        fullArchiveMemberPath.getArchivePath(), fullArchiveMemberPath.getMemberPath());
     assertTrue(innerCache2.willGet(archiveMemberPath));
   }
 
@@ -215,7 +218,8 @@ public class StackedFileHashCacheTest {
         ArchiveMemberPath.of(path, Paths.get(SOME_FILE_INSIDE_JAR));
     StackedFileHashCache cache =
         new StackedFileHashCache(ImmutableList.of(innerCache, innerCache2));
-    cache.get(filesystem2, archiveMemberPath);
+    cache.getForArchiveMember(
+        filesystem2, archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
     assertTrue(innerCache2.willGet(archiveMemberPath));
   }
 
@@ -255,7 +259,8 @@ public class StackedFileHashCacheTest {
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
     expectedException.expect(NoSuchFileException.class);
-    cache.get(archiveMemberPath);
+    cache.getForArchiveMember(
+        archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
   }
 
   @Test
@@ -272,7 +277,8 @@ public class StackedFileHashCacheTest {
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
     expectedException.expect(NoSuchFileException.class);
-    cache.get(filesystem, archiveMemberPath);
+    cache.getForArchiveMember(
+        filesystem, archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
   }
 
   @Test
@@ -317,7 +323,8 @@ public class StackedFileHashCacheTest {
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
     expectedException.expect(NoSuchFileException.class);
-    cache.get(archiveMemberPath);
+    cache.getForArchiveMember(
+        archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
   }
 
   @Test
@@ -333,7 +340,8 @@ public class StackedFileHashCacheTest {
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
     expectedException.expect(NoSuchFileException.class);
-    cache.get(filesystem, archiveMemberPath);
+    cache.getForArchiveMember(
+        filesystem, archiveMemberPath.getArchivePath(), archiveMemberPath.getMemberPath());
   }
 
   private void writeJarWithHashes(ProjectFilesystem filesystem, Path path) throws IOException {

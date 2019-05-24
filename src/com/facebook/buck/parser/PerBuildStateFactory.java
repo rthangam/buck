@@ -16,8 +16,7 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.watchman.Watchman;
@@ -27,7 +26,6 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,73 +53,42 @@ public abstract class PerBuildStateFactory {
       ConstructorArgMarshaller marshaller,
       KnownRuleTypesProvider knownRuleTypesProvider,
       ParserPythonInterpreterProvider parserPythonInterpreterProvider,
-      BuckConfig buckConfig,
       Watchman watchman,
       BuckEventBus eventBus,
       ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
-      FileHashCache fileHashCache) {
-    return buckConfig.getView(ParserConfig.class).getEnableConfigurableAttributes()
-        ? new PerBuildStateFactoryWithConfigurableAttributes(
-            typeCoercerFactory,
-            marshaller,
-            knownRuleTypesProvider,
-            parserPythonInterpreterProvider,
-            watchman,
-            eventBus,
-            manifestServiceSupplier,
-            fileHashCache)
-        : new LegacyPerBuildStateFactory(
-            typeCoercerFactory,
-            marshaller,
-            knownRuleTypesProvider,
-            parserPythonInterpreterProvider,
-            watchman,
-            eventBus,
-            manifestServiceSupplier,
-            fileHashCache);
+      FileHashCache fileHashCache,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
+    return new PerBuildStateFactoryWithConfigurableAttributes(
+        typeCoercerFactory,
+        marshaller,
+        knownRuleTypesProvider,
+        parserPythonInterpreterProvider,
+        watchman,
+        eventBus,
+        manifestServiceSupplier,
+        fileHashCache,
+        unconfiguredBuildTargetFactory);
   }
 
   public PerBuildState create(
+      ParsingContext parsingContext,
       DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
-      ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      SpeculativeParsing speculativeParsing) {
-    return create(
-        daemonicParserState,
-        executorService,
-        rootCell,
-        targetPlatforms,
-        enableProfiling,
-        Optional.empty(),
-        speculativeParsing);
+      ImmutableList<String> targetPlatforms) {
+    return create(parsingContext, daemonicParserState, targetPlatforms, Optional.empty());
   }
 
   public PerBuildState create(
+      ParsingContext parsingContext,
       DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
       ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      AtomicLong processedBytes,
-      SpeculativeParsing speculativeParsing) {
+      AtomicLong processedBytes) {
     return create(
-        daemonicParserState,
-        executorService,
-        rootCell,
-        targetPlatforms,
-        enableProfiling,
-        Optional.of(processedBytes),
-        speculativeParsing);
+        parsingContext, daemonicParserState, targetPlatforms, Optional.of(processedBytes));
   }
 
   protected abstract PerBuildState create(
+      ParsingContext parsingContext,
       DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
       ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      Optional<AtomicLong> parseProcessedBytes,
-      SpeculativeParsing speculativeParsing);
+      Optional<AtomicLong> parseProcessedBytes);
 }

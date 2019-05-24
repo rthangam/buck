@@ -16,17 +16,23 @@
 
 package com.facebook.buck.versions;
 
-import com.facebook.buck.core.graph.transformation.DefaultGraphTransformationEngine;
+import com.facebook.buck.core.graph.transformation.ComputationEnvironment;
+import com.facebook.buck.core.graph.transformation.GraphComputation;
 import com.facebook.buck.core.graph.transformation.GraphTransformationEngine;
-import com.facebook.buck.core.graph.transformation.GraphTransformer;
-import com.facebook.buck.core.graph.transformation.TransformationEnvironment;
 import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
 import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.impl.DefaultGraphTransformationEngine;
+import com.facebook.buck.core.graph.transformation.impl.GraphComputationStage;
+import com.facebook.buck.core.graph.transformation.model.ClassBasedComputationIdentifier;
+import com.facebook.buck.core.graph.transformation.model.ComputationIdentifier;
+import com.facebook.buck.core.graph.transformation.model.ComputeKey;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.RichStream;
@@ -35,6 +41,7 @@ import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -44,7 +51,6 @@ import java.util.HashMap;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -54,55 +60,55 @@ import org.immutables.value.Value.Style.ImplementationVisibility;
 
 /**
  * Takes a regular {@link TargetGraph}, resolves any versioned nodes, and returns a new graph with
- * the versioned nodes removed, transforming it asynchronously using {@link
- * com.facebook.buck.core.graph.transformation.GraphTransformer}.
+ * the versioned nodes removed, transforming it asynchronously using {@link GraphComputation}.
  */
 public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGraphBuilder {
 
   private static final Logger LOG = Logger.get(AsyncVersionedTargetGraphBuilder.class);
 
-  private final VersionedTargetGraphTransformer versionedTargetGraphTransformer;
+  private final VersionedTargetGraphComputation versionedTargetGraphTransformer;
 
-  private final GraphTransformationEngine<VersionTargetGraphKey, TargetNode<?>>
-      asyncTransformationEngine;
+  private final GraphTransformationEngine asyncTransformationEngine;
 
-  private final GraphTransformationEngine<TargetNode<?>, VersionInfo>
-      versionInfoAsyncTransformationEngine;
-  private final ForkJoinPool versionInfoExecutor;
+  private final GraphTransformationEngine versionInfoAsyncTransformationEngine;
 
   AsyncVersionedTargetGraphBuilder(
-      DepsAwareExecutor<? super TargetNode<?>, ?> executor,
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       long timeoutSeconds) {
     super(
         typeCoercerFactory,
+        unconfiguredBuildTargetFactory,
         unversionedTargetGraphAndBuildTargets,
         timeoutSeconds,
         TimeUnit.SECONDS);
 
     this.versionedTargetGraphTransformer =
-        new VersionedTargetGraphTransformer(
+        new VersionedTargetGraphComputation(
             unversionedTargetGraphAndBuildTargets.getTargetGraph(), versionSelector);
 
     this.asyncTransformationEngine =
-        new DefaultGraphTransformationEngine<>(
-            versionedTargetGraphTransformer,
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphComputationStage<>(versionedTargetGraphTransformer)),
             unversionedTargetGraphAndBuildTargets.getTargetGraph().getSize() * 4,
             executor);
-    versionInfoExecutor = new ForkJoinPool(2);
     this.versionInfoAsyncTransformationEngine =
-        new DefaultGraphTransformationEngine<>(
-            new TargetNodeToVersionInfoTransformer(
-                unversionedTargetGraphAndBuildTargets.getTargetGraph()),
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(
+                new GraphComputationStage<>(
+                    new TargetNodeToVersionInfoComputation(
+                        unversionedTargetGraphAndBuildTargets.getTargetGraph()))),
             2 * unversionedTargetGraphAndBuildTargets.getTargetGraph().getSize(),
-            DefaultDepsAwareExecutor.from(versionInfoExecutor));
+            DefaultDepsAwareExecutor.of(2));
   }
 
   @Override
   protected VersionInfo getVersionInfo(TargetNode<?> node) {
-    return Futures.getUnchecked(versionInfoAsyncTransformationEngine.compute(node));
+    return Futures.getUnchecked(
+        versionInfoAsyncTransformationEngine.compute(ImmutableVersionInfoKey.of(node)));
   }
 
   @Override
@@ -140,7 +146,6 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
 
     asyncTransformationEngine.close();
     versionInfoAsyncTransformationEngine.close();
-    versionInfoExecutor.shutdownNow();
 
     long end = System.currentTimeMillis();
 
@@ -156,8 +161,9 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
   public static TargetGraphAndBuildTargets transform(
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
-      DepsAwareExecutor<? super TargetNode<?>, ?> executor,
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       long timeoutSeconds)
       throws VersionException, TimeoutException, InterruptedException {
     return unversionedTargetGraphAndBuildTargets.withTargetGraph(
@@ -166,33 +172,61 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
                 versionSelector,
                 unversionedTargetGraphAndBuildTargets,
                 typeCoercerFactory,
+                unconfiguredBuildTargetFactory,
                 timeoutSeconds)
             .build());
   }
 
   /**
    * Computes all the {@link VersionInfo} in the graph. TODO(bobyf) rewrite this as stages once
-   * {@link GraphTransformer} supports staging
+   * {@link GraphComputation} supports staging
    */
-  private final class TargetNodeToVersionInfoTransformer
-      implements GraphTransformer<TargetNode<?>, VersionInfo> {
+  @Value.Immutable(builder = false, copy = false, prehash = true)
+  @Value.Style(visibility = ImplementationVisibility.PACKAGE)
+  abstract static class VersionInfoKey implements ComputeKey<VersionInfo> {
+
+    public static final ComputationIdentifier<VersionInfo> IDENTIFIER =
+        ClassBasedComputationIdentifier.of(VersionInfoKey.class, VersionInfo.class);
+
+    @Value.Parameter
+    public abstract TargetNode<?> getTargetNode();
+
+    @Override
+    public ComputationIdentifier<VersionInfo> getIdentifier() {
+      return IDENTIFIER;
+    }
+  }
+
+  private final class TargetNodeToVersionInfoComputation
+      implements GraphComputation<VersionInfoKey, VersionInfo> {
 
     private final TargetGraph targetGraph;
 
-    public TargetNodeToVersionInfoTransformer(TargetGraph targetGraph) {
+    public TargetNodeToVersionInfoComputation(TargetGraph targetGraph) {
       this.targetGraph = targetGraph;
     }
 
     @Override
-    public VersionInfo transform(
-        TargetNode<?> node, TransformationEnvironment<TargetNode<?>, VersionInfo> env) {
-      return getVersionInfo(node, env);
+    public ComputationIdentifier<VersionInfo> getIdentifier() {
+      return VersionInfoKey.IDENTIFIER;
     }
 
     @Override
-    public ImmutableSet<TargetNode<?>> discoverDeps(TargetNode<?> node) {
+    public VersionInfo transform(VersionInfoKey node, ComputationEnvironment env) {
+      return getVersionInfo(node.getTargetNode(), env);
+    }
+
+    @Override
+    public ImmutableSet<VersionInfoKey> discoverDeps(
+        VersionInfoKey key, ComputationEnvironment env) {
+      return ImmutableSet.of();
+    }
+
+    @Override
+    public ImmutableSet<VersionInfoKey> discoverPreliminaryDeps(VersionInfoKey node) {
+      TargetNode<?> targetNode = node.getTargetNode();
       Optional<TargetNode<VersionedAliasDescriptionArg>> versionedNode =
-          TargetGraphVersionTransformations.getVersionedNode(node);
+          TargetGraphVersionTransformations.getVersionedNode(targetNode);
 
       Iterable<BuildTarget> versionedDeps;
       if (versionedNode.isPresent()) {
@@ -207,7 +241,7 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
 
       } else {
         Iterable<BuildTarget> deps =
-            TargetGraphVersionTransformations.getDeps(typeCoercerFactory, node);
+            TargetGraphVersionTransformations.getDeps(typeCoercerFactory, targetNode);
         versionedDeps =
             Iterables.filter(
                 deps,
@@ -217,12 +251,14 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
                       || TargetGraphVersionTransformations.getVersionedNode(depNode).isPresent();
                 });
       }
-      return ImmutableSet.copyOf(Iterables.transform(versionedDeps, targetGraph::get));
+      return ImmutableSet.copyOf(
+          Iterables.transform(
+              versionedDeps,
+              buildTarget -> ImmutableVersionInfoKey.of(targetGraph.get(buildTarget))));
     }
 
     /** Get/cache the transitive version info for this node. */
-    private VersionInfo getVersionInfo(
-        TargetNode<?> node, TransformationEnvironment<TargetNode<?>, VersionInfo> env) {
+    private VersionInfo getVersionInfo(TargetNode<?> node, ComputationEnvironment env) {
       HashMap<BuildTarget, ImmutableSet<Version>> versionDomain = new HashMap<>();
 
       Optional<TargetNode<VersionedAliasDescriptionArg>> versionedNode =
@@ -234,7 +270,7 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
         versionDomain.put(node.getBuildTarget(), versions.keySet());
       }
 
-      for (VersionInfo depInfo : env.getDeps().values()) {
+      for (VersionInfo depInfo : env.getDeps(VersionInfoKey.IDENTIFIER).values()) {
         versionDomain.putAll(depInfo.getVersionDomain());
       }
       return VersionInfo.of(versionDomain);
@@ -243,7 +279,13 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
 
   /** Key used to request for resolved {@link TargetNode}s. */
   @Value.Immutable(builder = false, copy = false, prehash = true)
-  abstract static class VersionTargetGraphKey {
+  abstract static class VersionTargetGraphKey implements ComputeKey<TargetNode<?>> {
+
+    @SuppressWarnings("unchecked")
+    public static final ComputationIdentifier<TargetNode<?>> IDENTIFIER =
+        ClassBasedComputationIdentifier.of(
+            VersionTargetGraphKey.class, (Class<TargetNode<?>>) (Class<?>) TargetNode.class);
+
     @Value.Parameter
     public abstract TargetNode<?> getTargetNode();
 
@@ -253,6 +295,11 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
     @Value.Parameter
     @Value.Auxiliary
     public abstract Optional<TargetNodeTranslator> targetNodeTranslator();
+
+    @Override
+    public ComputationIdentifier<TargetNode<?>> getIdentifier() {
+      return IDENTIFIER;
+    }
 
     public static VersionTargetGraphKey of(TargetNode<?> node) {
       return ImmutableVersionTargetGraphKey.of(node, Optional.empty(), Optional.empty());
@@ -271,8 +318,8 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
   }
 
   /** Transforms versioned {@link TargetGraph} */
-  private final class VersionedTargetGraphTransformer
-      implements GraphTransformer<VersionTargetGraphKey, TargetNode<?>> {
+  private final class VersionedTargetGraphComputation
+      implements GraphComputation<VersionTargetGraphKey, TargetNode<?>> {
 
     private final LoadingCache<VersionTargetGraphKey, VersionRootInfo> keyToRootInfoCache =
         CacheBuilder.newBuilder()
@@ -294,16 +341,19 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
     /** The resolved version graph being built. */
     private final VersionedTargetGraph.Builder targetGraphBuilder = VersionedTargetGraph.builder();
 
-    public VersionedTargetGraphTransformer(
+    public VersionedTargetGraphComputation(
         TargetGraph targetGraph, VersionSelector versionSelector) {
       this.targetGraph = targetGraph;
       this.versionSelector = versionSelector;
     }
 
     @Override
-    public TargetNode<?> transform(
-        VersionTargetGraphKey key,
-        TransformationEnvironment<VersionTargetGraphKey, TargetNode<?>> env)
+    public ComputationIdentifier<TargetNode<?>> getIdentifier() {
+      return VersionTargetGraphKey.IDENTIFIER;
+    }
+
+    @Override
+    public TargetNode<?> transform(VersionTargetGraphKey key, ComputationEnvironment env)
         throws VersionException {
 
       TargetNodeTranslator targetTranslator;
@@ -319,6 +369,12 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
 
     @Override
     public ImmutableSet<VersionTargetGraphKey> discoverDeps(
+        VersionTargetGraphKey key, ComputationEnvironment env) {
+      return ImmutableSet.of();
+    }
+
+    @Override
+    public ImmutableSet<VersionTargetGraphKey> discoverPreliminaryDeps(
         VersionTargetGraphKey versionTargetGraphKey) throws VersionException {
 
       TargetNode<?> root = versionTargetGraphKey.getTargetNode();
@@ -383,9 +439,7 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
 
     @SuppressWarnings("unchecked")
     private TargetNode<?> processVersionSubGraphNode(
-        TargetNode<?> node,
-        TargetNodeTranslator targetTranslator,
-        TransformationEnvironment<VersionTargetGraphKey, TargetNode<?>> env) {
+        TargetNode<?> node, TargetNodeTranslator targetTranslator, ComputationEnvironment env) {
 
       // Create the new target node, with the new target and deps.
       TargetNode<?> newNode =
@@ -409,7 +463,7 @@ public class AsyncVersionedTargetGraphBuilder extends AbstractVersionedTargetGra
                       newNode.getBuildTarget().getFlavors(), node.getBuildTarget().getFlavors())),
           newNode);
 
-      for (TargetNode<?> childNode : env.getDeps().values()) {
+      for (TargetNode<?> childNode : env.getDeps(VersionTargetGraphKey.IDENTIFIER).values()) {
         targetGraphBuilder.addEdge(newNode, childNode);
       }
 

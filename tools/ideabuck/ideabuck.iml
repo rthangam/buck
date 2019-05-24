@@ -13,24 +13,9 @@
     <orderEntry type="jdk" jdkName="IDEA SDK" jdkType="IDEA JDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="jetty" level="project" />
-    <orderEntry type="library" name="jackson-mrbean-2.9.7" level="project" />
-    <orderEntry type="library" name="jackson-datatype-guava-2.9.7" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="android" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="gson" level="project" />
+    <orderEntry type="library" name="ideabuck-lib" level="project" />
     <orderEntry type="library" scope="TEST" name="test-lib" level="project" />
     <orderEntry type="library" scope="TEST" name="guava-testlib" level="project" />
-    <orderEntry type="module-library">
-      <library name="ideabuck-grammar">
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../../buck-out/gen/tools/ideabuck/lib__bundle_generated_lib__output/bundle_generated_lib.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$MODULE_DIR$/../../buck-out/gen/tools/ideabuck/generate_bnf" />
-          <root url="file://$MODULE_DIR$/../../buck-out/gen/tools/ideabuck/generate_flex" />
-        </SOURCES>
-      </library>
-    </orderEntry>
     <orderEntry type="module-library">
       <library name="ideabuck-dependencies-on-buck">
         <CLASSES>
@@ -41,5 +26,6 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="module" module-name="psi-grammar" />
   </component>
 </module>

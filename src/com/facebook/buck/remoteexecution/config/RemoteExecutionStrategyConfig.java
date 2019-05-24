@@ -15,6 +15,8 @@
  */
 package com.facebook.buck.remoteexecution.config;
 
+import java.util.OptionalLong;
+
 /** Configuration for the remote execution strategy. */
 public interface RemoteExecutionStrategyConfig {
   int getThreads();
@@ -26,4 +28,12 @@ public interface RemoteExecutionStrategyConfig {
   int getMaxConcurrentResultHandling();
 
   int getMaxConcurrentPendingUploads();
+
+  boolean isLocalFallbackEnabled();
+
+  OptionalLong maxInputSizeBytes();
+
+  String getWorkerRequirementsFilename();
+
+  boolean tryLargerWorkerOnOom();
 }

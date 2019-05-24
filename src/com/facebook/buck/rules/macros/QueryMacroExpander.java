@@ -19,16 +19,18 @@ package com.facebook.buck.rules.macros;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.query.NoopQueryEvaluator;
+import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.GraphEnhancementQueryEnvironment;
-import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
@@ -37,9 +39,11 @@ import java.util.stream.Stream;
 
 /** Abstract base class for the query_targets and query_outputs macros */
 public abstract class QueryMacroExpander<T extends QueryMacro>
-    extends AbstractMacroExpander<T, QueryMacroExpander.QueryResults> {
+    implements MacroExpander<T, QueryMacroExpander.QueryResults> {
 
   private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
+  private static final UnconfiguredBuildTargetViewFactory UNCONFIGURED_BUILD_TARGET_FACTORY =
+      new ParsingUnconfiguredBuildTargetViewFactory();
 
   private Optional<TargetGraph> targetGraph;
 
@@ -59,20 +63,18 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
             targetGraph,
             TYPE_COERCER_FACTORY,
             cellNames,
+            UNCONFIGURED_BUILD_TARGET_FACTORY,
             target.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            target.getTargetConfiguration());
     try {
-      QueryExpression parsedExp = QueryExpression.parse(queryExpression, env);
-      Set<QueryTarget> queryTargets = new NoopQueryEvaluator().eval(parsedExp, env);
+      QueryExpression<QueryBuildTarget> parsedExp = QueryExpression.parse(queryExpression, env);
+      Set<QueryTarget> queryTargets =
+          new NoopQueryEvaluator<QueryBuildTarget>().eval(parsedExp, env);
       return queryTargets.stream();
     } catch (QueryException e) {
       throw new MacroException("Error parsing/executing query from macro", e);
     }
-  }
-
-  @Override
-  public Class<QueryResults> getPrecomputedWorkClass() {
-    return QueryResults.class;
   }
 
   @Override
@@ -82,19 +84,6 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
     return new QueryResults(
         resolveQuery(target, cellNames, graphBuilder, input.getQuery().getQuery()));
   }
-
-  abstract T fromQuery(Query query);
-
-  @Override
-  protected T parse(BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    if (input.size() != 1) {
-      throw new MacroException("One quoted query expression is expected");
-    }
-    return fromQuery(Query.of(input.get(0), target.getBaseName()));
-  }
-
-  abstract boolean detectsTargetGraphOnlyDeps();
 
   protected static final class QueryResults {
     ImmutableList<QueryTarget> results;

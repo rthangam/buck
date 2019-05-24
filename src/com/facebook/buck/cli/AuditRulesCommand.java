@@ -100,7 +100,7 @@ public class AuditRulesCommand extends AbstractCommand {
                 params.getManifestServiceSupplier(),
                 params.getFileHashCache())
             .createBuildFileParser(
-                params.getBuckEventBus(), params.getCell(), params.getWatchman())) {
+                params.getBuckEventBus(), params.getCell(), params.getWatchman(), false)) {
       /*
        * The super console does a bunch of rewriting over the top of the console such that
        * simultaneously writing to stdout and stderr in an interactive session is problematic.
@@ -156,9 +156,7 @@ public class AuditRulesCommand extends AbstractCommand {
       PrintStream stdOut,
       ImmutableMap<String, Map<String, Object>> rawRules,
       Predicate<String> includeType) {
-    rawRules
-        .entrySet()
-        .stream()
+    rawRules.entrySet().stream()
         .filter(
             rawRule -> {
               String type = (String) rawRule.getValue().get(BuckPyFunction.TYPE_PROPERTY_NAME);

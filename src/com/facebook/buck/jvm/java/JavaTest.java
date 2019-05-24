@@ -16,8 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.android.device.TargetDevice;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -25,7 +28,7 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.HasPostBuildSteps;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
@@ -46,11 +49,9 @@ import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.test.TestCaseSummary;
@@ -555,10 +556,17 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       }
 
       Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
-      for (SourcePath path : sources) {
-        // We support multiple languages in this rule - the file extension doesn't matter so long
-        // as the language supports filename == classname.
-        sourceClassNames.add(MorePaths.getNameWithoutExtension(resolver.getRelativePath(path)));
+      try {
+        JavaPaths.getExpandedSourcePaths(
+                sources.stream()
+                    .map(resolver::getAbsolutePath)
+                    .collect(ImmutableList.toImmutableList()))
+            .stream()
+            .map(MorePaths::getNameWithoutExtension)
+            .forEach(sourceClassNames::add);
+      } catch (IOException e) {
+        throw new BuckUncheckedExecutionException(
+            e, "When determining possible java test class names.");
       }
 
       ImmutableSet.Builder<String> testClassNames = ImmutableSet.builder();
@@ -615,7 +623,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
     return Stream.concat(
             // By the end of the build, all the transitive Java library dependencies *must* be
             // available on disk, so signal this requirement via the {@link HasRuntimeDeps}
@@ -645,12 +653,14 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             Optional.empty(),
             getClassNamesForSources(buildContext.getSourcePathResolver()));
     return ExternalTestRunnerTestSpec.builder()
+        .setCwd(getProjectFilesystem().getRootPath())
         .setTarget(getBuildTarget())
         .setType("junit")
         .setCommand(jUnitStep.getShellCommandInternal(executionContext))
         .setEnv(jUnitStep.getEnvironmentVariables(executionContext))
         .setLabels(getLabels())
         .setContacts(getContacts())
+        .setRequiredPaths(getRuntimeClasspath(buildContext))
         .build();
   }
 
@@ -667,30 +677,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             new AbstractExecutionStep("write classpath file") {
               @Override
               public StepExecutionResult execute(ExecutionContext context) throws IOException {
-                ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
-                if (unbundledResourcesRoot.isPresent()) {
-                  builder.add(
-                      buildContext
-                          .getSourcePathResolver()
-                          .getAbsolutePath(unbundledResourcesRoot.get()));
-                }
-                ImmutableSet<Path> classpathEntries =
-                    builder
-                        .addAll(
-                            compiledTestsLibrary
-                                .getTransitiveClasspaths()
-                                .stream()
-                                .map(buildContext.getSourcePathResolver()::getAbsolutePath)
-                                .collect(ImmutableSet.toImmutableSet()))
-                        .addAll(
-                            additionalClasspathEntriesProvider
-                                .map(
-                                    e ->
-                                        e.getAdditionalClasspathEntries(
-                                            buildContext.getSourcePathResolver()))
-                                .orElse(ImmutableList.of()))
-                        .addAll(getBootClasspathEntries())
-                        .build();
+                ImmutableSet<Path> classpathEntries = getRuntimeClasspath(buildContext);
                 getProjectFilesystem()
                     .writeLinesToPath(
                         Iterables.transform(classpathEntries, Object::toString),
@@ -698,6 +685,28 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 return StepExecutionResults.SUCCESS;
               }
             })
+        .build();
+  }
+
+  /**
+   * @return a set of paths to the files which must be passed as the classpath to the java process
+   *     when this test is executed
+   */
+  protected ImmutableSet<Path> getRuntimeClasspath(BuildContext buildContext) {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+    unbundledResourcesRoot.ifPresent(
+        sourcePath ->
+            builder.add(buildContext.getSourcePathResolver().getAbsolutePath(sourcePath)));
+    return builder
+        .addAll(
+            compiledTestsLibrary.getTransitiveClasspaths().stream()
+                .map(buildContext.getSourcePathResolver()::getAbsolutePath)
+                .collect(ImmutableSet.toImmutableSet()))
+        .addAll(
+            additionalClasspathEntriesProvider
+                .map(e -> e.getAdditionalClasspathEntries(buildContext.getSourcePathResolver()))
+                .orElse(ImmutableList.of()))
+        .addAll(getBootClasspathEntries())
         .build();
   }
 

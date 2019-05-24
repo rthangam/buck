@@ -18,6 +18,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -26,7 +27,6 @@ import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.SortedMap;
@@ -43,12 +43,19 @@ public interface Parser {
 
   PerBuildStateFactory getPerBuildStateFactory();
 
-  TargetNode<?> getTargetNode(
-      Cell cell, boolean enableProfiling, ListeningExecutorService executor, BuildTarget target)
+  TargetNode<?> getTargetNode(ParsingContext parsingContext, BuildTarget target)
       throws BuildFileParseException;
 
   ImmutableList<TargetNode<?>> getAllTargetNodes(
-      PerBuildState perBuildState, Cell cell, Path buildFile) throws BuildFileParseException;
+      PerBuildState perBuildState,
+      Cell cell,
+      Path buildFile,
+      TargetConfiguration targetConfiguration)
+      throws BuildFileParseException;
+
+  ImmutableList<TargetNode<?>> getAllTargetNodesWithTargetCompatibilityFiltering(
+      PerBuildState state, Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
+      throws BuildFileParseException;
 
   TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
       throws BuildFileParseException;
@@ -70,38 +77,19 @@ public interface Parser {
   @Nullable
   @Deprecated
   SortedMap<String, Object> getTargetNodeRawAttributes(
-      Cell cell, ListeningExecutorService executor, TargetNode<?> targetNode)
-      throws BuildFileParseException;
+      ParsingContext parsingContext, TargetNode<?> targetNode) throws BuildFileParseException;
 
-  TargetGraph buildTargetGraph(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Iterable<BuildTarget> toExplore)
+  TargetGraph buildTargetGraph(ParsingContext parsingContext, Iterable<BuildTarget> toExplore)
       throws IOException, InterruptedException, BuildFileParseException;
 
   /**
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
-  TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Iterable<? extends TargetNodeSpec> targetNodeSpecs)
-      throws BuildFileParseException, IOException, InterruptedException;
-
-  /**
-   * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
-   * @return the target graph containing the build targets and their related targets.
-   */
   TargetGraphAndBuildTargets buildTargetGraphWithoutConfigurationTargets(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
+      ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      boolean excludeUnsupportedTargets,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
+      TargetConfiguration targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException;
 
   /**
@@ -109,30 +97,14 @@ public interface Parser {
    * @return the target graph containing the build targets and their related targets.
    */
   TargetGraphAndBuildTargets buildTargetGraphWithConfigurationTargets(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
+      ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      boolean excludeUnsupportedTargets,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
+      TargetConfiguration targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException;
 
   ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
+      ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> specs,
-      SpeculativeParsing speculativeParsing,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
-      throws BuildFileParseException, InterruptedException, IOException;
-
-  ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
-      Cell rootCell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Iterable<? extends TargetNodeSpec> specs,
-      SpeculativeParsing speculativeParsing,
-      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode,
-      boolean excludeUnsupportedTargets)
-      throws BuildFileParseException, InterruptedException, IOException;
+      TargetConfiguration targetConfiguration)
+      throws BuildFileParseException, InterruptedException;
 }

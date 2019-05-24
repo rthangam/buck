@@ -21,14 +21,13 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -86,6 +85,7 @@ public class QueryPathsMacroExpanderTest {
         StringWithMacrosConverter.builder()
             .setBuildTarget(targetNode.getBuildTarget())
             .setCellPathResolver(cellPathResolver)
+            .setActionGraphBuilder(graphBuilder)
             .addExpanders(expander)
             .build();
 
@@ -95,15 +95,12 @@ public class QueryPathsMacroExpanderTest {
         coerceAndStringify(filesystem, cellPathResolver, graphBuilder, converter, input, rule);
 
     // Expand the expected results
-    DefaultSourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-
     String expected =
         Stream.of(depNode, targetNode)
             .map(TargetNode::getBuildTarget)
             .map(graphBuilder::requireRule)
             .map(BuildRule::getSourcePathToOutput)
-            .map(pathResolver::getAbsolutePath)
+            .map(graphBuilder.getSourcePathResolver()::getAbsolutePath)
             .map(Object::toString)
             .collect(Collectors.joining(" "));
 
@@ -126,7 +123,10 @@ public class QueryPathsMacroExpanderTest {
             .setCmd(
                 StringWithMacrosUtils.format(
                     "%s",
-                    QueryPathsMacro.of(Query.of(dep.getBuildTarget().getFullyQualifiedName()))))
+                    QueryPathsMacro.of(
+                        Query.of(
+                            dep.getBuildTarget().getFullyQualifiedName(),
+                            dep.getBuildTarget().getTargetConfiguration()))))
             .build();
 
     TargetGraph graph = TargetGraphFactory.newInstance(dep, target);
@@ -150,9 +150,13 @@ public class QueryPathsMacroExpanderTest {
         (StringWithMacros)
             new DefaultTypeCoercerFactory()
                 .typeCoercerForType(StringWithMacros.class)
-                .coerce(cellPathResolver, filesystem, rule.getBuildTarget().getBasePath(), input);
-    Arg arg = converter.convert(stringWithMacros, graphBuilder);
-    return Arg.stringify(
-        arg, DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)));
+                .coerce(
+                    cellPathResolver,
+                    filesystem,
+                    rule.getBuildTarget().getBasePath(),
+                    EmptyTargetConfiguration.INSTANCE,
+                    input);
+    Arg arg = converter.convert(stringWithMacros);
+    return Arg.stringify(arg, graphBuilder.getSourcePathResolver());
   }
 }

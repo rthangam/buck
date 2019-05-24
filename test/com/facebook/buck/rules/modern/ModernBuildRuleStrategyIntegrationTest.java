@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -43,7 +44,6 @@ import com.facebook.buck.remoteexecution.config.RemoteExecutionType;
 import com.facebook.buck.remoteexecution.grpc.server.GrpcServer;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleBuildStrategy;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -137,7 +137,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new TouchOutput(
           buildTarget,
           creationContext.getProjectFilesystem(),
-          new SourcePathRuleFinder(creationContext.getActionGraphBuilder()),
+          creationContext.getActionGraphBuilder(),
           args.getOut());
     }
   }
@@ -162,7 +162,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new CheckSerialization(
           buildTarget,
           creationContext.getProjectFilesystem(),
-          new SourcePathRuleFinder(creationContext.getActionGraphBuilder()));
+          creationContext.getActionGraphBuilder());
     }
   }
 
@@ -226,7 +226,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new LargeDynamics(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(graphBuilder),
+          graphBuilder,
           firstRef,
           secondRef,
           args.getValue().charAt(0));
@@ -255,7 +255,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new FailingRule(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(context.getActionGraphBuilder()),
+          context.getActionGraphBuilder(),
           args.getStepFailure());
     }
   }
@@ -297,7 +297,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
 
   @Before
   public void setUp() throws IOException {
-    // MBR strategies use a ContentAddressedStorage that doesn't work correctly on Windows.
+    // MBR strategies use a ContentAddressedStorageClient that doesn't work correctly on Windows.
     assumeFalse(Platform.detect().equals(Platform.WINDOWS));
     workspace =
         TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
@@ -382,7 +382,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
   }
 
   @Test
-  public void testAbstractBuildRuleFieldSerialization() throws Exception {
+  public void testAbstractBuildRuleFieldSerialization() {
     ProcessResult result = workspace.runBuckBuild(checkSerializationTarget);
     result.assertSuccess();
   }
@@ -409,7 +409,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new DuplicateOutputsRule(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(context.getActionGraphBuilder()),
+          context.getActionGraphBuilder(),
           args.getOutputsAreDirectories());
     }
   }
@@ -460,13 +460,13 @@ public class ModernBuildRuleStrategyIntegrationTest {
   }
 
   @Test
-  public void testBuildRuleWithDuplicateOutputFiles() throws Exception {
+  public void testBuildRuleWithDuplicateOutputFiles() {
     ProcessResult result = workspace.runBuckBuild(duplicateOutputFilesTarget);
     result.assertSuccess();
   }
 
   @Test
-  public void testBuildRuleWithDuplicateOutputDirs() throws Exception {
+  public void testBuildRuleWithDuplicateOutputDirs() {
     ProcessResult result = workspace.runBuckBuild(duplicateOutputDirsTarget);
     result.assertSuccess();
   }

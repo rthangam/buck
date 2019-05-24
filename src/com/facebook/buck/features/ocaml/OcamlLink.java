@@ -108,17 +108,17 @@ public class OcamlLink extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                         outputRelativePath.getParent())))
             .add(
                 OcamlLinkStep.create(
-                    getProjectFilesystem().getRootPath(),
+                    getProjectFilesystem(),
                     cxxCompilerEnvironment,
                     cxxCompiler,
                     ocamlCompiler.getCommandPrefix(context.getSourcePathResolver()),
                     flags,
                     stdlib,
                     getProjectFilesystem().resolve(outputRelativePath),
+                    OcamlUtil.makeLinkerArgFilePath(getProjectFilesystem(), getBuildTarget()),
                     depInput,
                     cDepInput,
-                    inputs
-                        .stream()
+                    inputs.stream()
                         .map(context.getSourcePathResolver()::getAbsolutePath)
                         .collect(ImmutableList.toImmutableList()),
                     isLibrary,
@@ -146,8 +146,7 @@ public class OcamlLink extends AbstractBuildRuleWithDeclaredAndExtraDeps {
               stdlib,
               getProjectFilesystem().resolve(outputNativePluginPath),
               cDepInput,
-              inputs
-                  .stream()
+              inputs.stream()
                   .map(context.getSourcePathResolver()::getAbsolutePath)
                   .collect(ImmutableList.toImmutableList()),
               ocamlInput));

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.core.toolchain.impl;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
@@ -23,6 +24,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.toolchain.Toolchain;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainDescriptor;
@@ -81,7 +84,9 @@ public class DefaultToolchainProviderTest {
   public static class ToolchainFactoryThrowingIllegalStateException
       extends ThrowingToolchainFactory {
     public ToolchainFactoryThrowingIllegalStateException() {
-      super(new IllegalStateException(MESSAGE));
+      super(
+          new BuckUncheckedExecutionException(
+              new IllegalStateException(MESSAGE), "When doing something interesting."));
     }
   }
 
@@ -108,7 +113,8 @@ public class DefaultToolchainProviderTest {
         new FakeProjectFilesystem(),
         new FakeProcessExecutor(),
         new ExecutableFinder(),
-        TestRuleKeyConfigurationFactory.create());
+        TestRuleKeyConfigurationFactory.create(),
+        () -> EmptyTargetConfiguration.INSTANCE);
   }
 
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -150,9 +156,11 @@ public class DefaultToolchainProviderTest {
     DefaultToolchainProvider toolchainProvider =
         createProvider(ToolchainFactoryThrowingIllegalStateException.class);
 
-    thrown.expect(RuntimeException.class);
-    thrown.expectMessage(
-        "Cannot create a toolchain: no-op-toolchain. " + "Cause: something unexpected happened");
+    thrown.expectMessage(containsString("something unexpected happened"));
+    thrown.expectMessage(containsString("When doing something interesting."));
+    thrown.expectMessage(containsString("When creating toolchain no-op-toolchain."));
+
+    thrown.expect(BuckUncheckedExecutionException.class);
 
     toolchainProvider.getByName(NoopToolchain.DEFAULT_NAME);
   }

@@ -18,9 +18,9 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.google.common.collect.ImmutableList;
 import java.io.BufferedReader;
@@ -38,7 +38,7 @@ public class ConcatStepTest {
   @Rule public TemporaryFolder temp = new TemporaryFolder();
 
   @Test
-  public void testConcatFiles() throws InterruptedException, IOException {
+  public void testConcatFiles() throws IOException {
     // Create three files containing "foo", "bar", and "baz"
     // and see if they are correctly concatenated.
     File dest = temp.newFile();

@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -24,10 +25,10 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
-import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.AbstractCxxSource.Type;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -41,19 +42,25 @@ import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
+import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Predicate;
 
 /** A build rule which preprocesses and/or compiles a C/C++ source in a single step. */
 public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCompile.Impl>
-    implements SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey {
+    implements SupportsDependencyFileRuleKey {
+  private static final Logger LOG = Logger.get(CxxPreprocessAndCompile.class);
+
   private final Path output;
   private final Optional<CxxPrecompiledHeader> precompiledHeaderRule;
 
@@ -199,10 +206,8 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    if (getPreprocessorDelegate().isPresent()) {
-      return getPreprocessorDelegate().get().getCoveredByDepFilePredicate();
-    }
-    return getCompilerDelegate().getCoveredByDepFilePredicate();
+    return Depfiles.getCoveredByDepFilePredicate(
+        getPreprocessorDelegate(), Optional.of(getCompilerDelegate()));
   }
 
   @Override
@@ -230,7 +235,8 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
                 getDepFilePath(),
                 getRelativeInputPath(context.getSourcePathResolver()),
                 output,
-                compilerDelegate.getDependencyTrackingMode());
+                compilerDelegate.getDependencyTrackingMode(),
+                compilerDelegate.getCompiler().getUseUnixPathSeparator());
       } catch (Depfiles.HeaderVerificationException e) {
         throw new HumanReadableException(e);
       }
@@ -241,7 +247,9 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
     // If present, include all inputs coming from the compiler tool.
     inputs.addAll(compilerDelegate.getInputsAfterBuildingLocally());
 
-    if (precompiledHeaderRule.isPresent()) {
+    // In the non-precompiled case, the headers are properly reflected in our other inputs.
+    if (precompiledHeaderRule.isPresent()
+        && getBuildable().precompiledHeaderData.get().isPrecompiled()) {
       CxxPrecompiledHeader pch = precompiledHeaderRule.get();
       inputs.addAll(pch.getInputsAfterBuildingLocally(context, cellPathResolver));
     }
@@ -365,6 +373,22 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
           .add(
               makeMainStep(
                   context, filesystem, outputPathResolver, compilerDelegate.isArgFileSupported()))
+          .add(
+              new AbstractExecutionStep("verify_cxx_outputs") {
+                @Override
+                public StepExecutionResult execute(ExecutionContext executionContext) {
+                  Path outputPath =
+                      filesystem.getRootPath().toAbsolutePath().resolve(resolvedOutput);
+                  if (!Files.exists(outputPath)) {
+                    LOG.warn(
+                        new NoSuchFileException(outputPath.toString()),
+                        "Compile step was successful but output file: "
+                            + outputPath.toString()
+                            + " does not exist.");
+                  }
+                  return StepExecutionResult.of(0, Optional.empty());
+                }
+              })
           .build();
     }
   }

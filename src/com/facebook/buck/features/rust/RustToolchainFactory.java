@@ -20,8 +20,8 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.util.RichStream;
 import java.util.Optional;
 
@@ -34,13 +34,15 @@ public class RustToolchainFactory implements ToolchainFactory<RustToolchain> {
 
     CxxPlatformsProvider cxxPlatformsProviderFactory =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProviderFactory.getCxxPlatforms();
-    CxxPlatform defaultCxxPlatform = cxxPlatformsProviderFactory.getDefaultCxxPlatform();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProviderFactory.getUnresolvedCxxPlatforms();
+    UnresolvedCxxPlatform defaultCxxPlatform =
+        cxxPlatformsProviderFactory.getDefaultUnresolvedCxxPlatform();
 
     RustPlatformFactory platformFactory =
-        RustPlatformFactory.of(context.getBuckConfig(), context.getExecutableFinder());
+        new ImmutableRustPlatformFactory(context.getBuckConfig(), context.getExecutableFinder());
 
-    FlavorDomain<RustPlatform> rustPlatforms =
+    FlavorDomain<UnresolvedRustPlatform> rustPlatforms =
         FlavorDomain.from(
             "Rust Platforms",
             RichStream.from(cxxPlatforms.getValues())
@@ -49,7 +51,8 @@ public class RustToolchainFactory implements ToolchainFactory<RustToolchain> {
                     cxxPlatform ->
                         platformFactory.getPlatform(cxxPlatform.getFlavor().getName(), cxxPlatform))
                 .toImmutableList());
-    RustPlatform defaultRustPlatform = rustPlatforms.getValue(defaultCxxPlatform.getFlavor());
+    UnresolvedRustPlatform defaultRustPlatform =
+        rustPlatforms.getValue(defaultCxxPlatform.getFlavor());
 
     return Optional.of(RustToolchain.of(defaultRustPlatform, rustPlatforms));
   }

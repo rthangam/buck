@@ -16,9 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.immutables.BuckStyleStep;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -58,7 +58,7 @@ abstract class AbstractDiffAbisStep implements Step {
       case OFF:
         return StepExecutionResults.SUCCESS;
       case LOG:
-        LOG.warn(message);
+        LOG.info(message);
         return StepExecutionResults.SUCCESS;
       case FAIL:
         return StepExecutionResults.ERROR.withStderr(message);

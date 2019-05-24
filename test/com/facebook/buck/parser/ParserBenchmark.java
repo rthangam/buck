@@ -20,6 +20,10 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -53,9 +57,11 @@ public class ParserBenchmark {
   private ProjectFilesystem filesystem;
   private Cell cell;
   private ListeningExecutorService executorService;
+  private DepsAwareExecutor<? super ComputeResult, ?> executor;
 
   @Before
   public void setUpTest() throws Exception {
+    executor = DefaultDepsAwareExecutor.of(4);
     targetCount = 10;
     setUpBenchmark();
   }
@@ -103,13 +109,14 @@ public class ParserBenchmark {
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(threadCount));
-    parser = TestParserFactory.create(config);
+    parser = TestParserFactory.create(executor, cell);
   }
 
   @After
   @AfterExperiment
   public void cleanup() {
     tempDir.after();
+    executor.close();
     executorService.shutdown();
   }
 
@@ -120,12 +127,13 @@ public class ParserBenchmark {
 
   @Benchmark
   public void parseMultipleTargets() throws Exception {
-    parser.buildTargetGraphForTargetNodeSpecs(
-        cell,
-        /* enableProfiling */ false,
-        executorService,
+    parser.buildTargetGraphWithConfigurationTargets(
+        ParsingContext.builder(cell, executorService)
+            .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+            .build(),
         ImmutableList.of(
-            TargetNodePredicateSpec.of(
-                BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))));
+            ImmutableTargetNodePredicateSpec.of(
+                BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
+        EmptyTargetConfiguration.INSTANCE);
   }
 }

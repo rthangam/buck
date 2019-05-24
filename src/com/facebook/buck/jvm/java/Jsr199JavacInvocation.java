@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.util.log.Logger;
@@ -37,7 +38,6 @@ import com.facebook.buck.jvm.java.tracing.JavacPhaseEventLogger;
 import com.facebook.buck.jvm.java.tracing.TracingTaskListener;
 import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.util.concurrent.MostExecutors.NamedThreadFactory;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.JarBuilder;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
@@ -86,7 +86,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
   private final BuildTarget libraryTarget;
   private final AbiGenerationMode abiCompatibilityMode;
   private final ImmutableList<String> options;
-  private final ImmutableList<JavacPluginJsr199Fields> pluginFields;
+  private final ImmutableList<JavacPluginJsr199Fields> annotationProcessors;
+  private final ImmutableList<JavacPluginJsr199Fields> javacPlugins;
   private final ImmutableSortedSet<Path> javaSourceFilePaths;
   private final Path pathToSrcsList;
   private final AbiGenerationMode abiGenerationMode;
@@ -103,7 +104,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<JavacPluginJsr199Fields> pluginFields,
+      ImmutableList<JavacPluginJsr199Fields> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> javacPlugins,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       boolean trackClassUsage,
@@ -122,7 +124,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
             : JavaAbis.getLibraryTarget(invokingRule);
     this.abiCompatibilityMode = abiCompatibilityMode;
     this.options = options;
-    this.pluginFields = pluginFields;
+    this.annotationProcessors = annotationProcessors;
+    this.javacPlugins = javacPlugins;
     this.javaSourceFilePaths = javaSourceFilePaths;
     this.pathToSrcsList = pathToSrcsList;
     this.trackClassUsage = trackClassUsage;
@@ -372,9 +375,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     }
 
     private boolean buildSuccessful() {
-      return diagnostics
-          .getDiagnostics()
-          .stream()
+      return diagnostics.getDiagnostics().stream()
           .noneMatch(diag -> diag.getKind() == Diagnostic.Kind.ERROR);
     }
 
@@ -504,7 +505,12 @@ class Jsr199JavacInvocation implements Javac.Invocation {
               compiler.getStandardFileManager(null, null, null);
           addCloseable(standardFileManager);
 
-          StandardJavaFileManager fileManager;
+          // Ensure plugins are loaded from their own classloader.
+          PluginFactory pluginFactory =
+              new PluginFactory(
+                  compiler.getClass().getClassLoader(), context.getClassLoaderCache());
+
+          PluginLoaderJavaFileManager fileManager;
           if (libraryJarParameters != null) {
             Path directToJarPath =
                 context
@@ -516,10 +522,12 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                     directToJarPath,
                     libraryJarParameters.getRemoveEntryPredicate());
             addCloseable(inMemoryFileManager);
-            fileManager = inMemoryFileManager;
+            fileManager =
+                new PluginLoaderJavaFileManager(inMemoryFileManager, pluginFactory, javacPlugins);
           } else {
             inMemoryFileManager = null;
-            fileManager = standardFileManager;
+            fileManager =
+                new PluginLoaderJavaFileManager(standardFileManager, pluginFactory, javacPlugins);
           }
 
           Iterable<? extends JavaFileObject> compilationUnits;
@@ -580,9 +588,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                     javacTask,
                     ruleInfoFactory.create(fileManager),
                     () ->
-                        diagnostics
-                            .getDiagnostics()
-                            .stream()
+                        diagnostics.getDiagnostics().stream()
                             .anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR),
                     abiGenerationMode.getDiagnosticKindForSourceOnlyAbiCompatibility());
           }
@@ -608,7 +614,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                   invokingRule);
           addCloseable(processorFactory);
 
-          javacTask.setProcessors(processorFactory.createProcessors(pluginFields));
+          javacTask.setProcessors(processorFactory.createProcessors(annotationProcessors));
           lazyJavacTask = javacTask;
         } catch (IOException e) {
           LOG.error(e);
@@ -645,7 +651,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
           Iterable<? extends JavaFileObject> javaFileObjects =
               fileManager.getJavaFileObjects(absolutifier.apply(path).toFile());
           compilationUnits.add(Iterables.getOnlyElement(javaFileObjects));
-        } else if (pathString.endsWith(Javac.SRC_ZIP) || pathString.endsWith(Javac.SRC_JAR)) {
+        } else if (pathString.endsWith(JavaPaths.SRC_ZIP)
+            || pathString.endsWith(JavaPaths.SRC_JAR)) {
           // For a Zip of .java files, create a JavaFileObject for each .java entry.
           ZipFile zipFile = new ZipFile(absolutifier.apply(path).toFile());
           boolean hasZipFileBeenUsed = false;

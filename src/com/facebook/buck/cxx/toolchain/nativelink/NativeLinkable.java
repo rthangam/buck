@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx.toolchain.nativelink;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -73,18 +74,22 @@ public interface NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder);
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration);
 
   /**
    * Return input that *dependents* should put on their link line when linking against this
    * linkable.
    */
   default NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type, ActionGraphBuilder graphBuilder) {
-    return getNativeLinkableInput(cxxPlatform, type, false, graphBuilder);
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType type,
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
+    return getNativeLinkableInput(cxxPlatform, type, false, graphBuilder, targetConfiguration);
   }
 
-  Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder);
+  Linkage getPreferredLinkage(CxxPlatform cxxPlatform);
 
   /**
    * @return a map of shared library SONAME to shared library path for the given {@link
@@ -95,7 +100,7 @@ public interface NativeLinkable {
 
   /** @return whether this {@link NativeLinkable} supports omnibus linking. */
   @SuppressWarnings("unused")
-  default boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  default boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
     return true;
   }
 

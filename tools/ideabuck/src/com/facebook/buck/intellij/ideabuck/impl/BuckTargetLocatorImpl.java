@@ -21,8 +21,8 @@ import com.facebook.buck.intellij.ideabuck.api.BuckCellManager.Cell;
 import com.facebook.buck.intellij.ideabuck.api.BuckTarget;
 import com.facebook.buck.intellij.ideabuck.api.BuckTargetLocator;
 import com.facebook.buck.intellij.ideabuck.api.BuckTargetPattern;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionCall;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionTrailer;
+import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiManager;
@@ -154,7 +154,7 @@ public class BuckTargetLocatorImpl implements BuckTargetLocator {
   }
 
   @Override
-  public Optional<BuckFunctionCall> findElementForTarget(BuckTarget buckTarget) {
+  public Optional<BuckFunctionTrailer> findElementForTarget(BuckTarget buckTarget) {
     return findVirtualFileForTarget(buckTarget)
         .map(mPsiManager::findFile)
         .map(psiFile -> BuckPsiUtils.findTargetInPsiTree(psiFile, buckTarget.getRuleName()));

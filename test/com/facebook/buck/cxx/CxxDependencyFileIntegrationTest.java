@@ -22,7 +22,7 @@ import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.testutil.ParameterizedTests;
@@ -76,7 +76,7 @@ public class CxxDependencyFileIntegrationTest {
         CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform);
     String source = "test.cpp";
     compileTarget = cxxSourceRuleFactory.createCompileBuildTarget(source);
-    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget.toString());
+    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget);
   }
 
   @Test

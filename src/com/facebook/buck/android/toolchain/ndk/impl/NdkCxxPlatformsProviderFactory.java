@@ -18,15 +18,16 @@ package com.facebook.buck.android.toolchain.ndk.impl;
 
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainFactory;
 import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
@@ -38,14 +39,21 @@ public class NdkCxxPlatformsProviderFactory implements ToolchainFactory<NdkCxxPl
   public Optional<NdkCxxPlatformsProvider> createToolchain(
       ToolchainProvider toolchainProvider, ToolchainCreationContext context) {
 
-    ImmutableMap<TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
-        getNdkCxxPlatforms(context.getBuckConfig(), context.getFilesystem(), toolchainProvider);
+    ImmutableMap<TargetCpuType, UnresolvedNdkCxxPlatform> ndkCxxPlatforms =
+        getNdkCxxPlatforms(
+            context.getBuckConfig(),
+            context.getFilesystem(),
+            context.getTargetConfiguration().get(),
+            toolchainProvider);
 
     return Optional.of(NdkCxxPlatformsProvider.of(ndkCxxPlatforms));
   }
 
-  private static ImmutableMap<TargetCpuType, NdkCxxPlatform> getNdkCxxPlatforms(
-      BuckConfig config, ProjectFilesystem filesystem, ToolchainProvider toolchainProvider) {
+  private static ImmutableMap<TargetCpuType, UnresolvedNdkCxxPlatform> getNdkCxxPlatforms(
+      BuckConfig config,
+      ProjectFilesystem filesystem,
+      TargetConfiguration targetConfiguration,
+      ToolchainProvider toolchainProvider) {
 
     Platform platform = Platform.detect();
     AndroidBuckConfig androidConfig = new AndroidBuckConfig(config, platform);
@@ -62,7 +70,13 @@ public class NdkCxxPlatformsProviderFactory implements ToolchainFactory<NdkCxxPl
 
     try {
       return NdkCxxPlatforms.getPlatforms(
-          cxxBuckConfig, androidConfig, filesystem, platform, toolchainProvider, ndkVersion);
+          cxxBuckConfig,
+          androidConfig,
+          filesystem,
+          targetConfiguration,
+          platform,
+          toolchainProvider,
+          ndkVersion);
     } catch (AssertionError e) {
       throw new ToolchainInstantiationException(e, e.getMessage());
     }

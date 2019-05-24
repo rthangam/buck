@@ -24,10 +24,11 @@ import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.module.BuckModuleManager;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
@@ -56,6 +57,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.pf4j.PluginManager;
 
 /** Saves and restores the state of a build to/from a thrift data structure. */
@@ -148,8 +150,10 @@ public class DistBuildState {
       ExecutableFinder executableFinder,
       BuckModuleManager moduleManager,
       PluginManager pluginManager,
-      ProjectFilesystemFactory projectFilesystemFactory)
-      throws InterruptedException, IOException {
+      ProjectFilesystemFactory projectFilesystemFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      Supplier<TargetConfiguration> targetConfiguration)
+      throws IOException {
     ProjectFilesystem rootCellFilesystem = rootCell.getFilesystem();
 
     ImmutableMap.Builder<Path, DistBuildCellParams> cellParams = ImmutableMap.builder();
@@ -181,7 +185,8 @@ public class DistBuildState {
               config,
               projectFilesystem,
               ImmutableMap.copyOf(localBuckConfig.getEnvironment()),
-              cellPathResolver);
+              cellPathResolver,
+              unconfiguredBuildTargetFactory);
 
       Optional<String> cellName =
           remoteCell.getCanonicalName().isEmpty()
@@ -208,7 +213,11 @@ public class DistBuildState {
 
     CellProvider cellProvider =
         DistributedCellProviderFactory.create(
-            Objects.requireNonNull(rootCellParams), cellParams.build(), rootCellPathResolver);
+            Objects.requireNonNull(rootCellParams),
+            cellParams.build(),
+            rootCellPathResolver,
+            unconfiguredBuildTargetFactory,
+            targetConfiguration);
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -245,14 +254,16 @@ public class DistBuildState {
       Config rawConfig,
       ProjectFilesystem projectFilesystem,
       ImmutableMap<String, String> environment,
-      CellPathResolver cellPathResolver) {
+      CellPathResolver cellPathResolver,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
     return new BuckConfig(
         rawConfig,
         projectFilesystem,
         Architecture.detect(),
         Platform.detect(),
         ImmutableMap.copyOf(environment),
-        target -> BuildTargetParser.INSTANCE.parseFullyQualified(cellPathResolver, target));
+        buildTargetName ->
+            unconfiguredBuildTargetFactory.create(cellPathResolver, buildTargetName));
   }
 
   public ImmutableMap<Integer, Cell> getCells() {

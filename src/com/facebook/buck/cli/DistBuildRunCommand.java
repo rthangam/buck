@@ -48,11 +48,11 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -200,7 +200,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 params.getExecutableFinder(),
                 params.getBuckModuleManager(),
                 params.getPluginManager(),
-                params.getProjectFilesystemFactory());
+                params.getProjectFilesystemFactory(),
+                params.getUnconfiguredBuildTargetFactory(),
+                params.getTargetConfigurationSupplier());
         timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_STATE_LOADING_TIME);
 
         DistBuildConfig distBuildConfig = new DistBuildConfig(state.getRootCell().getBuckConfig());
@@ -267,7 +269,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                     timeStatsTracker,
                     getCoordinatorBuildRuleEventsPublisher(),
                     getMinionBuildProgressTracker(),
-                    ruleKeyCacheScope);
+                    ruleKeyCacheScope,
+                    params.getUnconfiguredBuildTargetFactory(),
+                    params.getTargetConfigurationSerializer());
 
             distBuildExecutor.onBuildSlavePreparationCompleted(
                 () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));

@@ -24,7 +24,13 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.QueryTarget;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -39,16 +45,17 @@ import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.testutil.CloseableResource;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -76,6 +83,10 @@ public class BuckQueryEnvironmentTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
+  @Rule
+  public CloseableResource<DepsAwareExecutor<? super ComputeResult, ?>> depsAwareExecutor =
+      CloseableResource.of(() -> DefaultDepsAwareExecutor.of(4));
+
   private BuckQueryEnvironment buckQueryEnvironment;
   private Path cellRoot;
   private ListeningExecutorService executor;
@@ -94,6 +105,7 @@ public class BuckQueryEnvironmentTest {
 
   @Before
   public void setUp() throws IOException {
+    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     eventBus = BuckEventBusForTests.newInstance();
     capturingConsoleEventListener = new CapturingConsoleEventListener();
     eventBus.register(capturingConsoleEventListener);
@@ -118,33 +130,36 @@ public class BuckQueryEnvironmentTest {
             new DefaultConstructorArgMarshaller(typeCoercerFactory),
             knownRuleTypesProvider,
             new ParserPythonInterpreterProvider(parserConfig, executableFinder),
-            cell.getBuckConfig(),
             WatchmanFactory.NULL_WATCHMAN,
             eventBus,
             getManifestSupplier(),
-            new FakeFileHashCache(ImmutableMap.of()));
-    Parser parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory, eventBus);
+            new FakeFileHashCache(ImmutableMap.of()),
+            new ParsingUnconfiguredBuildTargetViewFactory());
+    Parser parser =
+        TestParserFactory.create(depsAwareExecutor.get(), cell, perBuildStateFactory, eventBus);
     parserState =
         perBuildStateFactory.create(
+            ParsingContext.builder(cell, executor)
+                .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+                .build(),
             parser.getPermState(),
-            executor,
-            cell,
-            ImmutableList.of(),
-            /* enableProfiling */ false,
-            SpeculativeParsing.ENABLED);
+            ImmutableList.of());
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
-            cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false, false);
-    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser, parserState);
-    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+            cell,
+            FakeBuckConfig.builder().build(),
+            parser,
+            ParsingContext.builder(cell, executor).build(),
+            EmptyTargetConfiguration.INSTANCE);
+    OwnersReport.Builder ownersReportBuilder =
+        OwnersReport.builder(cell, parser, parserState, EmptyTargetConfiguration.INSTANCE);
     buckQueryEnvironment =
         BuckQueryEnvironment.from(
             cell,
             ownersReportBuilder,
             parser,
             parserState,
-            executor,
             targetPatternEvaluator,
             eventBus,
             TYPE_COERCER_FACTORY);
@@ -163,30 +178,38 @@ public class BuckQueryEnvironmentTest {
     ImmutableSet<QueryTarget> expectedTargets;
 
     targets = buckQueryEnvironment.getTargetsMatchingPattern("//example:six");
-    expectedTargets = ImmutableSortedSet.of(createQueryBuildTarget("//example", "six"));
+    expectedTargets =
+        new ImmutableSortedSet.Builder<>(QueryTarget::compare)
+            .add(createQueryBuildTarget("//example", "six"))
+            .build();
     assertThat(targets, is(equalTo(expectedTargets)));
 
     targets = buckQueryEnvironment.getTargetsMatchingPattern("//example/app:seven");
-    expectedTargets = ImmutableSortedSet.of(createQueryBuildTarget("//example/app", "seven"));
+    expectedTargets =
+        new ImmutableSortedSet.Builder<>(QueryTarget::compare)
+            .add(createQueryBuildTarget("//example/app", "seven"))
+            .build();
     assertThat(targets, is(equalTo(expectedTargets)));
   }
 
   @Test
   public void testResolveTargetPattern() throws QueryException {
     ImmutableSet<QueryTarget> expectedTargets =
-        ImmutableSortedSet.of(
-            createQueryBuildTarget("//example", "one"),
-            createQueryBuildTarget("//example", "two"),
-            createQueryBuildTarget("//example", "three"),
-            createQueryBuildTarget("//example", "four"),
-            createQueryBuildTarget("//example", "five"),
-            createQueryBuildTarget("//example", "six"),
-            createQueryBuildTarget("//example", "application-test-lib"),
-            createQueryBuildTarget("//example", "test-lib-lib"),
-            createQueryBuildTarget("//example", "one-tests"),
-            createQueryBuildTarget("//example", "four-tests"),
-            createQueryBuildTarget("//example", "four-application-tests"),
-            createQueryBuildTarget("//example", "six-tests"));
+        new ImmutableSortedSet.Builder<>(QueryTarget::compare)
+            .add(
+                createQueryBuildTarget("//example", "one"),
+                createQueryBuildTarget("//example", "two"),
+                createQueryBuildTarget("//example", "three"),
+                createQueryBuildTarget("//example", "four"),
+                createQueryBuildTarget("//example", "five"),
+                createQueryBuildTarget("//example", "six"),
+                createQueryBuildTarget("//example", "application-test-lib"),
+                createQueryBuildTarget("//example", "test-lib-lib"),
+                createQueryBuildTarget("//example", "one-tests"),
+                createQueryBuildTarget("//example", "four-tests"),
+                createQueryBuildTarget("//example", "four-application-tests"),
+                createQueryBuildTarget("//example", "six-tests"))
+            .build();
     assertThat(
         buckQueryEnvironment.getTargetsMatchingPattern("//example:"), is(equalTo(expectedTargets)));
   }

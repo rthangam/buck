@@ -17,10 +17,13 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.command.config.BuildBuckConfig;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -166,7 +169,9 @@ public abstract class DistBuildFactory {
       BuildSlaveTimingStatsTracker timingStatsTracker,
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionBuildProgressTracker minionBuildProgressTracker,
-      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope) {
+      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      TargetConfigurationSerializer targetConfigurationSerializer) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -193,10 +198,14 @@ public abstract class DistBuildFactory {
                     ActionGraphFactory.create(
                         params.getBuckEventBus(),
                         state.getRootCell().getCellProvider(),
-                        params.getPoolSupplier(),
+                        params.getExecutors(),
+                        params.getDepsAwareExecutorSupplier(),
                         state.getRemoteRootCellConfig()),
                     new ActionGraphCache(
-                        state.getRemoteRootCellConfig().getMaxActionGraphCacheEntries()),
+                        state
+                            .getRemoteRootCellConfig()
+                            .getView(BuildBuckConfig.class)
+                            .getMaxActionGraphCacheEntries()),
                     ruleKeyConfiguration,
                     false,
                     false,
@@ -227,6 +236,8 @@ public abstract class DistBuildFactory {
             .setRuleKeyCacheScope(ruleKeyCacheScope)
             .setRemoteCommand(state.getRemoteState().getCommand())
             .setMetadataProvider(params.getMetadataProvider())
+            .setUnconfiguredBuildTargetFactory(unconfiguredBuildTargetFactory)
+            .setTargetConfigurationSerializer(targetConfigurationSerializer)
             .build());
   }
 }

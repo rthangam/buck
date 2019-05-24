@@ -49,7 +49,7 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
             BuildTargetFactory.newInstance(workspace.getDestPath(), "//simple/foo:foo"),
             BuildTargetFactory.newInstance(workspace.getDestPath(), "//simple/bar:bar"));
     for (BuildTarget target : targets) {
-      workspace.getBuildLog().assertTargetBuiltLocally(target.toString());
+      workspace.getBuildLog().assertTargetBuiltLocally(target);
     }
     assertEquals(targets, workspace.getBuildLog().getAllTargets());
   }
@@ -86,71 +86,6 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
     assertThat(
         processResult.getStderr(),
         Matchers.containsString("//simple/.... references non-existent directory simple"));
-  }
-
-  @Test
-  public void targetsTypo() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "command_line_parser", tmp);
-    workspace.setUp();
-
-    // First check for correct usage.
-    ProcessResult result = workspace.runBuckCommand("targets", "//simple:").assertSuccess();
-    assertEquals(
-        ImmutableSet.of("//simple:simple"),
-        ImmutableSet.copyOf(
-            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
-
-    // Check for some expected failure cases.
-    result = workspace.runBuckCommand("targets", "//sImple:");
-    result.assertFailure();
-
-    assertThat(
-        result.getStderr(),
-        Matchers.allOf(
-            Matchers.containsString("The case of the build path provided"),
-            Matchers.containsString("sImple"),
-            Matchers.containsString(
-                "does not match the actual path. "
-                    + "This is an issue even on case-insensitive file systems. "
-                    + "Please check the spelling of the provided path."),
-            Matchers.containsString("Did you mean:"),
-            Matchers.containsString("//simple")));
-
-    // Check for some expected failure cases if CAPSLOCK
-    result = workspace.runBuckCommand("targets", "//SIMPLE:");
-    result.assertFailure();
-
-    assertThat(
-        result.getStderr(),
-        Matchers.allOf(
-            Matchers.containsString("The case of the build path provided"),
-            Matchers.containsString("SIMPLE"),
-            Matchers.containsString(
-                "does not match the actual path. "
-                    + "This is an issue even on case-insensitive file systems. "
-                    + "Please check the spelling of the provided path."),
-            Matchers.containsString("Did you mean:"),
-            Matchers.containsString("//simple")));
-
-    // Give suggestion if possible
-    result = workspace.runBuckCommand("targets", "//smple:");
-    result.assertFailure();
-    assertThat(
-        result.getStderr(),
-        Matchers.allOf(
-            Matchers.containsString("//smple: references non-existent directory"),
-            Matchers.containsString("Did you mean:"),
-            Matchers.containsString("//simple")));
-
-    // Do not give suggestion if no suggestion is found
-    result = workspace.runBuckCommand("targets", "//VeryVeryNotSimple:");
-    result.assertFailure();
-    assertThat(
-        result.getStderr(),
-        Matchers.allOf(
-            Matchers.containsString("//VeryVeryNotSimple: references non-existent directory"),
-            Matchers.not(Matchers.containsString("Did you mean:"))));
   }
 
   @Test
@@ -209,7 +144,7 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
             BuildTargetFactory.newInstance(workspace.getDestPath(), "//simple:simple"),
             BuildTargetFactory.newInstance(workspace.getDestPath(), "//simple/foo:foo"));
     for (BuildTarget target : targets) {
-      workspace.getBuildLog().assertTargetBuiltLocally(target.toString());
+      workspace.getBuildLog().assertTargetBuiltLocally(target);
     }
     assertEquals(targets, workspace.getBuildLog().getAllTargets());
   }

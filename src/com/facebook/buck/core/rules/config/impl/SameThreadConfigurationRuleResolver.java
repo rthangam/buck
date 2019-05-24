@@ -18,7 +18,7 @@ package com.facebook.buck.core.rules.config.impl;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
@@ -30,27 +30,29 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- * Provides a mechanism for mapping between a {@link BuildTarget} and the {@link ConfigurationRule}
- * it represents.
+ * Provides a mechanism for mapping between a {@link UnconfiguredBuildTargetView} and the {@link
+ * ConfigurationRule} it represents.
  *
  * <p>This resolver performs all computations on the same thread {@link #getRule} was called from.
  */
 public class SameThreadConfigurationRuleResolver implements ConfigurationRuleResolver {
 
-  private final Function<BuildTarget, Cell> cellProvider;
-  private final BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier;
-  private final ConcurrentHashMap<BuildTarget, ConfigurationRule> configurationRuleIndex;
+  private final Function<UnconfiguredBuildTargetView, Cell> cellProvider;
+  private final BiFunction<Cell, UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier;
+  private final ConcurrentHashMap<UnconfiguredBuildTargetView, ConfigurationRule>
+      configurationRuleIndex;
 
   public SameThreadConfigurationRuleResolver(
-      Function<BuildTarget, Cell> cellProvider,
-      BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier) {
+      Function<UnconfiguredBuildTargetView, Cell> cellProvider,
+      BiFunction<Cell, UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier) {
     this.cellProvider = cellProvider;
     this.targetNodeSupplier = targetNodeSupplier;
     this.configurationRuleIndex = new ConcurrentHashMap<>();
   }
 
   private ConfigurationRule computeIfAbsent(
-      BuildTarget target, Function<BuildTarget, ConfigurationRule> mappingFunction) {
+      UnconfiguredBuildTargetView target,
+      Function<UnconfiguredBuildTargetView, ConfigurationRule> mappingFunction) {
     @Nullable ConfigurationRule configurationRule = configurationRuleIndex.get(target);
     if (configurationRule != null) {
       return configurationRule;
@@ -61,11 +63,11 @@ public class SameThreadConfigurationRuleResolver implements ConfigurationRuleRes
   }
 
   @Override
-  public ConfigurationRule getRule(BuildTarget buildTarget) {
+  public ConfigurationRule getRule(UnconfiguredBuildTargetView buildTarget) {
     return computeIfAbsent(buildTarget, this::createConfigurationRule);
   }
 
-  private <T> ConfigurationRule createConfigurationRule(BuildTarget buildTarget) {
+  private <T> ConfigurationRule createConfigurationRule(UnconfiguredBuildTargetView buildTarget) {
     Cell cell = cellProvider.apply(buildTarget);
     @SuppressWarnings("unchecked")
     TargetNode<T> targetNode = (TargetNode<T>) targetNodeSupplier.apply(cell, buildTarget);

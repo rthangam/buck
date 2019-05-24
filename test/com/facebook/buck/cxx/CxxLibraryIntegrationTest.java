@@ -30,16 +30,17 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
+import com.facebook.buck.cxx.toolchain.impl.CxxPlatforms;
+import com.facebook.buck.cxx.toolchain.impl.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileScrubbers;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.ProcessResult;
@@ -183,7 +184,11 @@ public class CxxLibraryIntegrationTest {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    assumeTrue(cxxPlatform.getAr().resolve(ruleResolver).supportsThinArchives());
+    assumeTrue(
+        cxxPlatform
+            .getAr()
+            .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE)
+            .supportsThinArchives());
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library", tmp);
     workspace.setUp();
@@ -212,8 +217,7 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
-  public void testCxxLibraryWithDefaultsInFlagBuildsSomething()
-      throws InterruptedException, IOException {
+  public void testCxxLibraryWithDefaultsInFlagBuildsSomething() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     AssumeAndroidPlatform.assumeNdkIsAvailable();
     AssumeAndroidPlatform.assumeSdkIsAvailable();
@@ -235,7 +239,7 @@ public class CxxLibraryIntegrationTest {
     BuildTarget implicitTarget =
         target.withAppendedFlavors(
             InternalFlavor.of("static-pic"), InternalFlavor.of("android-armv7"));
-    workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget);
   }
 
   @Test
@@ -300,8 +304,7 @@ public class CxxLibraryIntegrationTest {
     workspace.runBuckBuild("//:lib_header#default,shared").assertSuccess();
   }
 
-  private void assumeSymLinkTreeWithHeaderMap(Path rootPath)
-      throws InterruptedException, IOException {
+  private void assumeSymLinkTreeWithHeaderMap(Path rootPath) throws IOException {
     // We can only disable symlink trees if header map is supported.
     HeaderMode headerMode = CxxPlatformUtils.getHeaderModeForDefaultPlatform(rootPath);
     assumeTrue(headerMode == HeaderMode.SYMLINK_TREE_WITH_HEADER_MAP);
@@ -475,5 +478,25 @@ public class CxxLibraryIntegrationTest {
             "targets", "--config", "cxx.should_remap_host_platform=true", "//:foo");
     result.assertSuccess();
     assertThat(result.getStdout(), containsString("//:foo#" + hostFlavor));
+  }
+
+  @Test(timeout = 180000)
+  public void testSymlinksOnAndOff() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "symlink_on_off", tmp);
+    workspace.setUp();
+
+    // Build with symlinks on.
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.exported_headers_symlinks_enabled=true", "//:bar");
+    result.assertSuccess();
+
+    // Build with symlinks off.
+    result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.exported_headers_symlinks_enabled=false", "//:bar");
+    result.assertFailure();
   }
 }

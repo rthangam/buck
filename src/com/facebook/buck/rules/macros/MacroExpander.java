@@ -21,16 +21,22 @@ import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.rules.args.Arg;
-import com.google.common.collect.ImmutableList;
 
-public interface MacroExpander {
+public interface MacroExpander<T, P> {
 
-  /** Expand the input given for the this macro to an Arg. */
-  Arg expand(
+  /** @return the class for the parsed macro input type. */
+  Class<T> getInputClass();
+
+  /** @return the precomputed work that can be re-used between invocations */
+  P precomputeWorkFrom(
+      BuildTarget target, CellPathResolver cellNames, ActionGraphBuilder graphBuilder, T input)
+      throws MacroException;
+
+  Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       ActionGraphBuilder graphBuilder,
-      ImmutableList<String> input,
-      Object precomputedWork)
+      T input,
+      P precomputedWork)
       throws MacroException;
 }

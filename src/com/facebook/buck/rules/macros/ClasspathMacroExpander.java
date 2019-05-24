@@ -16,9 +16,7 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -43,13 +41,6 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
     return ClasspathMacro.class;
   }
 
-  @Override
-  protected ClasspathMacro parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    return ClasspathMacro.of(parseBuildTarget(target, cellNames, input));
-  }
-
   private HasClasspathEntries getHasClasspathEntries(BuildRule rule) throws MacroException {
     if (!(rule instanceof HasClasspathEntries)) {
       throw new MacroException(
@@ -64,9 +55,7 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
   protected Arg expand(SourcePathResolver resolver, ClasspathMacro ignored, BuildRule rule)
       throws MacroException {
     return new ClasspathArg(
-        getHasClasspathEntries(rule)
-            .getTransitiveClasspathDeps()
-            .stream()
+        getHasClasspathEntries(rule).getTransitiveClasspathDeps().stream()
             .map(BuildRule::getSourcePathToOutput)
             .filter(Objects::nonNull)
             .sorted()
@@ -83,8 +72,7 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
     @Override
     public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
       consumer.accept(
-          classpath
-              .stream()
+          classpath.stream()
               .map(dep -> pathResolver.getAbsolutePath(dep))
               .map(Object::toString)
               .sorted(Ordering.natural())

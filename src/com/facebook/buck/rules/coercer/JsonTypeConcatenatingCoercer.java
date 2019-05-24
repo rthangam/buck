@@ -16,6 +16,7 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.select.impl.SelectorListFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import java.nio.file.Path;
@@ -53,8 +54,8 @@ public class JsonTypeConcatenatingCoercer implements TypeCoercer<Object> {
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
-      Object object)
-      throws CoerceFailedException {
+      TargetConfiguration targetConfiguration,
+      Object object) {
     // No transformations here, just return the same object
     return object;
   }

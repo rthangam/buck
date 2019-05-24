@@ -17,8 +17,8 @@
 package com.facebook.buck.intellij.ideabuck.completion;
 
 import com.facebook.buck.intellij.ideabuck.lang.BuckLanguage;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckTypes;
+import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.google.common.collect.ImmutableList;
 import com.intellij.codeInsight.completion.CompletionContributor;
 import com.intellij.codeInsight.completion.CompletionParameters;
@@ -109,7 +109,7 @@ public class BuckCompletionContributor extends CompletionContributor {
     // Auto completion for basic rule names.
     extend(
         CompletionType.BASIC,
-        PlatformPatterns.psiElement(BuckTypes.IDENTIFIER).withLanguage(BuckLanguage.INSTANCE),
+        PlatformPatterns.psiElement(BuckTypes.IDENTIFIER_TOKEN).withLanguage(BuckLanguage.INSTANCE),
         BuckKeywordsCompletionProvider.INSTANCE);
   }
 

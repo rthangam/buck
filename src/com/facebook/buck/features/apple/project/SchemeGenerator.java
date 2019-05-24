@@ -74,6 +74,7 @@ class SchemeGenerator {
   private final String schemeName;
   private final Path outputDirectory;
   private final boolean parallelizeBuild;
+  private final boolean wasCreatedForAppExtension;
   private final Optional<String> runnablePath;
   private final Optional<String> remoteRunnablePath;
   private final ImmutableMap<SchemeActionType, String> actionConfigNames;
@@ -99,6 +100,7 @@ class SchemeGenerator {
       String schemeName,
       Path outputDirectory,
       boolean parallelizeBuild,
+      Optional<Boolean> wasCreatedForAppExtension,
       Optional<String> runnablePath,
       Optional<String> remoteRunnablePath,
       ImmutableMap<SchemeActionType, String> actionConfigNames,
@@ -122,6 +124,7 @@ class SchemeGenerator {
     this.schemeName = schemeName;
     this.outputDirectory = outputDirectory;
     this.parallelizeBuild = parallelizeBuild;
+    this.wasCreatedForAppExtension = wasCreatedForAppExtension.orElse(false);
     this.runnablePath = runnablePath;
     this.remoteRunnablePath = remoteRunnablePath;
     this.actionConfigNames = actionConfigNames;
@@ -149,15 +152,18 @@ class SchemeGenerator {
             .orElse(Optional.empty());
     if (commands.isPresent()) {
       ImmutableList<XCScheme.SchemePrePostAction> actions =
-          commands
-              .get()
-              .stream()
+          commands.get().stream()
               .map(command -> new XCScheme.SchemePrePostAction(primaryTarget, command))
               .collect(ImmutableList.toImmutableList());
       return Optional.of(actions);
     } else {
       return Optional.empty();
     }
+  }
+
+  @VisibleForTesting
+  Path getOutputDirectory() {
+    return outputDirectory;
   }
 
   @VisibleForTesting
@@ -322,6 +328,7 @@ class SchemeGenerator {
     XCScheme scheme =
         new XCScheme(
             schemeName,
+            wasCreatedForAppExtension,
             Optional.of(buildAction),
             Optional.of(testAction),
             launchAction,
@@ -598,6 +605,9 @@ class SchemeGenerator {
 
     Element rootElem = doc.getDocumentElement();
     rootElem.setAttribute("LastUpgradeVersion", "9999");
+    if (scheme.getWasCreatedForExtension()) {
+      rootElem.setAttribute("wasCreatedForAppExtension", "YES");
+    }
     rootElem.setAttribute("version", "1.7");
 
     Optional<XCScheme.BuildAction> buildAction = scheme.getBuildAction();

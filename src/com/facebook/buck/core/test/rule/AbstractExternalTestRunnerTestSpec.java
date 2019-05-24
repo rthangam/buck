@@ -53,6 +53,9 @@ abstract class AbstractExternalTestRunnerTestSpec implements JsonSerializable {
   /** @return the command the external test runner must invoke to run the test. */
   public abstract ImmutableList<String> getCommand();
 
+  /** @return the directory from which the external runner should invoke the command. */
+  public abstract Path getCwd();
+
   /**
    * @return coverage threshold and list of source path to be passed the test command for test
    *     coverage.
@@ -74,6 +77,15 @@ abstract class AbstractExternalTestRunnerTestSpec implements JsonSerializable {
   /** @return test contacts. */
   public abstract ImmutableList<String> getContacts();
 
+  /**
+   * @return the set of files and directories (may include symlinks or symlink-trees) which *must*
+   *     be materialized in order to run this test. This is used by external test runners that wish
+   *     to distribute tests to other machines. Some examples of what my contained include:
+   *     java_tests: runtime classpath, android_instrumentation_test: test_apk and apk_under_test
+   *     paths, python_tests: location of python files if style=inplace
+   */
+  public abstract ImmutableSet<Path> getRequiredPaths();
+
   @Override
   public void serialize(JsonGenerator jsonGenerator, SerializerProvider serializerProvider)
       throws IOException {
@@ -81,6 +93,7 @@ abstract class AbstractExternalTestRunnerTestSpec implements JsonSerializable {
     jsonGenerator.writeStringField("target", getTarget().toString());
     jsonGenerator.writeStringField("type", getType());
     jsonGenerator.writeObjectField("command", getCommand());
+    jsonGenerator.writeObjectField("cwd", getCwd().toAbsolutePath().toString());
     jsonGenerator.writeObjectField("env", getEnv());
     if (!getNeededCoverage().isEmpty()) {
       jsonGenerator.writeObjectField(
@@ -90,6 +103,9 @@ abstract class AbstractExternalTestRunnerTestSpec implements JsonSerializable {
     }
     if (!getAdditionalCoverageTargets().isEmpty()) {
       jsonGenerator.writeObjectField("additional_coverage_targets", getAdditionalCoverageTargets());
+    }
+    if (!getRequiredPaths().isEmpty()) {
+      jsonGenerator.writeObjectField("required_paths", getRequiredPaths());
     }
     jsonGenerator.writeObjectField(
         "labels",

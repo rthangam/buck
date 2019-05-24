@@ -20,8 +20,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
-import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.rules.keys.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
 import java.nio.file.Path;
@@ -115,23 +113,16 @@ public abstract class ForwardingRuleKeyHasher<HASH, HASH2> implements RuleKeyHas
 
   @Override
   public ForwardingRuleKeyHasher<HASH, HASH2> putArchiveMemberPath(
-      ArchiveMemberPath path, HashCode hash) {
-    secondHasher.putArchiveMemberPath(path, hash);
-    delegate.putArchiveMemberPath(path, hash);
+      Path relativeArchivePath, Path archiveMemberPath, HashCode hash) {
+    secondHasher.putArchiveMemberPath(relativeArchivePath, archiveMemberPath, hash);
+    delegate.putArchiveMemberPath(relativeArchivePath, archiveMemberPath, hash);
     return this;
   }
 
   @Override
-  public ForwardingRuleKeyHasher<HASH, HASH2> putNonHashingPath(String path) {
+  public ForwardingRuleKeyHasher<HASH, HASH2> putNonHashingPath(Path path) {
     secondHasher.putNonHashingPath(path);
     delegate.putNonHashingPath(path);
-    return this;
-  }
-
-  @Override
-  public ForwardingRuleKeyHasher<HASH, HASH2> putSourceRoot(SourceRoot sourceRoot) {
-    secondHasher.putSourceRoot(sourceRoot);
-    delegate.putSourceRoot(sourceRoot);
     return this;
   }
 

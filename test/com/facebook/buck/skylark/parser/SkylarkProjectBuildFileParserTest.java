@@ -31,9 +31,8 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationDescriptionsFactory;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -44,12 +43,9 @@ import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.implicit.ImplicitInclude;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.skylark.io.impl.NativeGlobber;
-import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -60,6 +56,7 @@ import com.google.devtools.build.lib.events.EventCollector;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.events.EventKind;
 import com.google.devtools.build.lib.events.PrintingEventHandler;
+import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.Type;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -68,6 +65,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,9 +77,46 @@ import org.junit.rules.ExpectedException;
 import org.pf4j.PluginManager;
 
 public class SkylarkProjectBuildFileParserTest {
+  // A simple wrapper around skylark parser that records interesting events.
+  class RecordingParser extends SkylarkProjectBuildFileParser {
+    private Map<com.google.devtools.build.lib.vfs.Path, Integer> readCounts;
+    private Map<com.google.devtools.build.lib.vfs.Path, Integer> buildCounts;
+
+    public RecordingParser(SkylarkProjectBuildFileParser delegate) {
+      super(delegate);
+      readCounts = new HashMap<com.google.devtools.build.lib.vfs.Path, Integer>();
+      buildCounts = new HashMap<com.google.devtools.build.lib.vfs.Path, Integer>();
+    }
+
+    @Override
+    public BuildFileAST readSkylarkAST(com.google.devtools.build.lib.vfs.Path path)
+        throws IOException {
+      readCounts.compute(path, (k, v) -> v == null ? 1 : v + 1);
+      return super.readSkylarkAST(path);
+    }
+
+    @Override
+    public ExtensionData buildExtensionData(ExtensionLoadState load) throws InterruptedException {
+      ExtensionData result = super.buildExtensionData(load);
+      buildCounts.compute(result.getPath(), (k, v) -> v == null ? 1 : v + 1);
+      return result;
+    }
+
+    public ImmutableMap<com.google.devtools.build.lib.vfs.Path, Integer> expectedCounts(
+        Object... args) {
+      assert args.length % 2 == 0;
+      ImmutableMap.Builder<com.google.devtools.build.lib.vfs.Path, Integer> builder =
+          ImmutableMap.builder();
+      for (int i = 0; i < args.length; i += 2) {
+        builder.put((com.google.devtools.build.lib.vfs.Path) args[i], (Integer) args[i + 1]);
+      }
+      return builder.build();
+    }
+  }
 
   private SkylarkProjectBuildFileParser parser;
   private ProjectFilesystem projectFilesystem;
+  private SkylarkFilesystem skylarkFilesystem;
   private KnownRuleTypesProvider knownRuleTypesProvider;
 
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -90,15 +125,10 @@ public class SkylarkProjectBuildFileParserTest {
   @Before
   public void setUp() {
     projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
+    skylarkFilesystem = SkylarkFilesystem.using(projectFilesystem);
     cell = new TestCellBuilder().setFilesystem(projectFilesystem).build();
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
-    knownRuleTypesProvider =
-        new KnownRuleTypesProvider(
-            new DefaultKnownRuleTypesFactory(
-                new DefaultProcessExecutor(new TestConsole()),
-                pluginManager,
-                new TestSandboxExecutionStrategyFactory(),
-                PluginBasedKnownConfigurationDescriptionsFactory.createFromPlugins(pluginManager)));
+    knownRuleTypesProvider = TestKnownRuleTypesProvider.create(pluginManager);
     parser = createParser(new PrintingEventHandler(EventKind.ALL_EVENTS));
   }
 
@@ -119,7 +149,7 @@ public class SkylarkProjectBuildFileParserTest {
     return SkylarkProjectBuildFileParser.using(
         options,
         BuckEventBusForTests.newInstance(),
-        SkylarkFilesystem.using(projectFilesystem),
+        skylarkFilesystem,
         BuckGlobals.builder()
             .setRuleFunctionFactory(new RuleFunctionFactory(new DefaultTypeCoercerFactory()))
             .setDescriptions(options.getDescriptions())
@@ -131,6 +161,10 @@ public class SkylarkProjectBuildFileParserTest {
 
   private SkylarkProjectBuildFileParser createParser(EventHandler eventHandler) {
     return createParserWithOptions(eventHandler, getDefaultParserOptions().build());
+  }
+
+  private com.google.devtools.build.lib.vfs.Path vfs_path(Path p) {
+    return skylarkFilesystem.getPath(p.toString());
   }
 
   @Test
@@ -468,7 +502,7 @@ public class SkylarkProjectBuildFileParserTest {
         eventCollector.iterator().next().getMessage(),
         stringContainsInOrder(
             "prebuilt_jar requires name and binary_jar but they are not provided.",
-            "Need help? See https://buckbuild.com/rule/prebuilt_jar"));
+            "Need help? See https://buck.build/rule/prebuilt_jar"));
   }
 
   @Test
@@ -557,6 +591,98 @@ public class SkylarkProjectBuildFileParserTest {
     Path extensionFile = projectFilesystem.resolve("ext.bzl");
     Files.write(extensionFile, Arrays.asList("ext = 'hello'", "print('hello world')"));
     assertTrue(parser.getBuildFileManifest(buildFile).getTargets().isEmpty());
+  }
+
+  @Test
+  public void doesNotReadSameExtensionMultipleTimes() throws Exception {
+    // Verifies each extension file is accessed for IO and AST construction only once.
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(
+        buildFile, Arrays.asList("load('//:ext_1.bzl', 'ext_1')", "load('//:ext_2.bzl', 'ext_2')"));
+
+    Path ext1 = projectFilesystem.resolve("ext_1.bzl");
+    Files.write(ext1, Arrays.asList("load('//:ext_2.bzl', 'ext_2')", "ext_1 = ext_2"));
+
+    Path ext2 = projectFilesystem.resolve("ext_2.bzl");
+    Files.write(ext2, Arrays.asList("ext_2 = 'hello'"));
+
+    RecordingParser recordingParser = new RecordingParser(parser);
+    recordingParser.getBuildFileManifest(buildFile);
+
+    assertThat(
+        recordingParser.readCounts,
+        equalTo(
+            recordingParser.expectedCounts(
+                vfs_path(buildFile), 1, vfs_path(ext1), 1, vfs_path(ext2), 1)));
+  }
+
+  @Test
+  public void doesNotBuildSameExtensionMultipleTimes() throws Exception {
+    // Verifies each extension file is accessed for IO and AST construction only once.
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(
+        buildFile, Arrays.asList("load('//:ext_1.bzl', 'ext_1')", "load('//:ext_2.bzl', 'ext_2')"));
+
+    Path ext1 = projectFilesystem.resolve("ext_1.bzl");
+    // Note: using relative path for load.
+    Files.write(ext1, Arrays.asList("load(':ext_2.bzl', 'ext_2')", "ext_1 = ext_2"));
+
+    Path ext2 = projectFilesystem.resolve("ext_2.bzl");
+    Files.write(ext2, Arrays.asList("ext_2 = 'hello'"));
+
+    RecordingParser recordingParser = new RecordingParser(parser);
+    recordingParser.getBuildFileManifest(buildFile);
+
+    assertThat(
+        recordingParser.buildCounts,
+        equalTo(recordingParser.expectedCounts(vfs_path(ext1), 1, vfs_path(ext2), 1)));
+  }
+
+  @Test
+  public void doesNotReadSameBuildFileMultipleTimes() throws Exception {
+    // Verifies BUILD file is accessed for IO and AST construction only once.
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(buildFile, Arrays.asList("_var = 'hello'"));
+
+    RecordingParser recordingParser = new RecordingParser(parser);
+    recordingParser.getBuildFileManifest(buildFile);
+    recordingParser.getIncludedFiles(buildFile);
+    assertThat(
+        recordingParser.readCounts,
+        equalTo(recordingParser.expectedCounts(vfs_path(buildFile), 1)));
+  }
+
+  @Test
+  public void canHandleSameExtensionLoadedMultipleTimesFromAnotherExtension() throws Exception {
+    // Verifies we can handle the case when the same extension is loaded multiple times from another
+    // extension.
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(buildFile, Arrays.asList("load('//:ext_1.bzl', 'ext_1')"));
+
+    Path ext1 = projectFilesystem.resolve("ext_1.bzl");
+    Files.write(
+        ext1,
+        Arrays.asList(
+            "load('//:ext_2.bzl', 'ext_2')", "load('//:ext_2.bzl', 'ext_2')", "ext_1 = ext_2"));
+
+    Path ext2 = projectFilesystem.resolve("ext_2.bzl");
+    Files.write(ext2, Arrays.asList("ext_2 = 'hello'"));
+
+    parser.getBuildFileManifest(buildFile);
+  }
+
+  @Test
+  public void canHandleSameExtensionLoadedMultipleTimesFromBuildFile() throws Exception {
+    // Verifies we can handle the case when the same extension is loaded multiple times from a BUILD
+    // file.
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(
+        buildFile, Arrays.asList("load('//:ext_1.bzl', 'ext_1')", "load('//:ext_1.bzl', 'ext_1')"));
+
+    Path ext1 = projectFilesystem.resolve("ext_1.bzl");
+    Files.write(ext1, Arrays.asList("ext_1 = 'hello'"));
+
+    parser.getBuildFileManifest(buildFile);
   }
 
   @Test
@@ -767,7 +893,7 @@ public class SkylarkProjectBuildFileParserTest {
     Files.write(buildFile, Arrays.asList("def foo():", "  pass"));
 
     thrown.expect(BuildFileParseException.class);
-    thrown.expectMessage("Cannot parse build file " + buildFile);
+    thrown.expectMessage("Cannot parse build file");
 
     parser.getBuildFileManifest(buildFile);
   }
@@ -796,7 +922,7 @@ public class SkylarkProjectBuildFileParserTest {
     Files.write(extensionFile, Collections.singletonList("error"));
 
     thrown.expect(BuildFileParseException.class);
-    thrown.expectMessage("Cannot evaluate extension file //src/test:build_rules.bzl");
+    thrown.expectMessage("Cannot evaluate extension //src/test:build_rules.bzl");
 
     parser.getBuildFileManifest(buildFile);
   }
@@ -906,7 +1032,7 @@ public class SkylarkProjectBuildFileParserTest {
             "load('//src/test:build_rules.bzl', 'get_name')",
             "prebuilt_jar(name='foo', binary_jar=get_name())"));
     Files.write(extensionFile, Collections.singletonList("def get_name():\n  return 'jar'\nj j"));
-    thrown.expectMessage("Cannot parse extension file //src/test:build_rules.bzl");
+    thrown.expectMessage(containsString("Cannot parse"));
     parser.getBuildFileManifest(buildFile);
   }
 
@@ -937,7 +1063,7 @@ public class SkylarkProjectBuildFileParserTest {
         SkylarkProjectBuildFileParser.using(
             options,
             BuckEventBusForTests.newInstance(),
-            SkylarkFilesystem.using(projectFilesystem),
+            skylarkFilesystem,
             BuckGlobals.builder()
                 .setDisableImplicitNativeRules(options.getDisableImplicitNativeRules())
                 .setDescriptions(options.getDescriptions())
@@ -993,8 +1119,7 @@ public class SkylarkProjectBuildFileParserTest {
     ImmutableSortedSet<String> includes = parser.getIncludedFiles(buildFile);
     assertThat(includes, Matchers.hasSize(2));
     assertThat(
-        includes
-            .stream()
+        includes.stream()
             .map(projectFilesystem::resolve)
             .map(Path::getFileName) // simplify matching by stripping temporary path prefixes
             .map(Object::toString)
@@ -1021,8 +1146,7 @@ public class SkylarkProjectBuildFileParserTest {
     assertThat(prebuiltJarRule.get("name"), equalTo("foo"));
     ImmutableSortedSet<String> includes = buildFileManifest.getIncludes();
     assertThat(
-        includes
-            .stream()
+        includes.stream()
             .map(projectFilesystem::resolve)
             .map(Path::getFileName) // simplify matching by stripping temporary path prefixes
             .map(Object::toString)
@@ -1353,9 +1477,7 @@ public class SkylarkProjectBuildFileParserTest {
       Path buildFile = projectFilesystem.resolve(kvp.getKey());
       String expectedName = kvp.getValue();
       ImmutableList expectedIncludes =
-          expectedIncludesPaths
-              .get(kvp.getKey())
-              .stream()
+          expectedIncludesPaths.get(kvp.getKey()).stream()
               .map(projectFilesystem::resolve)
               .collect(ImmutableList.toImmutableList());
 
@@ -1386,18 +1508,14 @@ public class SkylarkProjectBuildFileParserTest {
           String.format(
               "Expected file at %s to parse and have manifest includes %s",
               kvp.getKey(), buildFileManifest.getIncludes()),
-          buildFileManifest
-              .getIncludes()
-              .stream()
+          buildFileManifest.getIncludes().stream()
               .map(Paths::get)
               .collect(ImmutableList.toImmutableList()),
           Matchers.containsInAnyOrder(expectedIncludes.toArray()));
       assertThat(
           String.format(
               "Expected file at %s to parse and have includes %s", kvp.getKey(), expectedIncludes),
-          parser
-              .getIncludedFiles(projectFilesystem.resolve(kvp.getKey()))
-              .stream()
+          parser.getIncludedFiles(projectFilesystem.resolve(kvp.getKey())).stream()
               .map(Paths::get)
               .collect(ImmutableList.toImmutableList()),
           Matchers.containsInAnyOrder(expectedIncludes.toArray()));
@@ -1507,7 +1625,7 @@ public class SkylarkProjectBuildFileParserTest {
   @Test
   public void failsIfInvalidImplicitExtensionSpecified() throws IOException, InterruptedException {
     thrown.expect(BuildFileParseException.class);
-    thrown.expectMessage("Cannot parse extension file //src:get_name.bzl");
+    thrown.expectMessage("Cannot parse");
 
     Path implicitExtension = projectFilesystem.resolve("src").resolve("get_name.bzl");
     Files.createDirectories(implicitExtension.getParent());

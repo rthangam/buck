@@ -21,7 +21,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.features.project.intellij.IjDependencyListBuilder;
 import com.facebook.buck.features.project.intellij.Util;
 import com.facebook.buck.features.project.intellij.model.folders.IjFolder;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,7 +39,8 @@ abstract class AbstractIjModule implements IjProjectElement {
   @Override
   @Value.Derived
   public String getName() {
-    return Util.intelliJModuleNameFromPath(MorePaths.pathWithUnixSeparators(getModuleBasePath()));
+    return Util.intelliJModuleNameFromPath(
+        PathFormatter.pathWithUnixSeparators(getModuleBasePath()));
   }
 
   @Override
@@ -77,17 +78,6 @@ abstract class AbstractIjModule implements IjProjectElement {
   public abstract Optional<Path> getMetaInfDirectory();
 
   public abstract Optional<Path> getCompilerOutputPath();
-
-  @Value.Check
-  protected void allRulesAreChildrenOfBasePath() {
-    Path moduleBasePath = getModuleBasePath();
-    for (BuildTarget target : getTargets()) {
-      Path targetBasePath = target.getBasePath();
-      Preconditions.checkArgument(
-          targetBasePath.startsWith(moduleBasePath),
-          "A module cannot be composed of targets which are outside of its base path.");
-    }
-  }
 
   @Value.Check
   protected void checkDependencyConsistency() {

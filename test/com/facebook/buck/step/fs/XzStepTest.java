@@ -20,9 +20,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.PathByteSource;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.io.ByteSource;
@@ -54,7 +54,7 @@ public class XzStepTest {
   }
 
   @Test
-  public void testXzStep() throws InterruptedException, IOException {
+  public void testXzStep() throws IOException {
     Path sourceFile =
         TestDataHelper.getTestDataScenario(this, "compression_test").resolve("step.data");
     File destinationFile = tmp.newFile("step.data.xz");
@@ -87,7 +87,7 @@ public class XzStepTest {
   }
 
   @Test
-  public void testXzStepDeletesOriginal() throws InterruptedException, IOException {
+  public void testXzStepDeletesOriginal() throws IOException {
     Path sourceFileOriginal =
         TestDataHelper.getTestDataScenario(this, "compression_test").resolve("step.data");
     Path sourceFile = tmp.newFile("step.data").toPath();

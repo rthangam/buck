@@ -33,6 +33,10 @@ import com.facebook.buck.doctor.config.DoctorEndpointResponse;
 import com.facebook.buck.doctor.config.DoctorJsonResponse;
 import com.facebook.buck.doctor.config.DoctorProtocolVersion;
 import com.facebook.buck.doctor.config.DoctorSuggestion;
+import com.facebook.buck.doctor.config.ImmutableDoctorConfig;
+import com.facebook.buck.doctor.config.ImmutableDoctorEndpointResponse;
+import com.facebook.buck.doctor.config.ImmutableDoctorJsonResponse;
+import com.facebook.buck.doctor.config.ImmutableDoctorSuggestion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -114,12 +118,12 @@ public class DoctorCommandIntegrationTest {
             .build();
 
     doctorResponse =
-        DoctorEndpointResponse.of(
+        new ImmutableDoctorEndpointResponse(
             Optional.empty(),
             ImmutableList.of(
-                DoctorSuggestion.of(
+                new ImmutableDoctorSuggestion(
                     DoctorSuggestion.StepStatus.ERROR, Optional.empty(), "Suggestion no1"),
-                DoctorSuggestion.of(
+                new ImmutableDoctorSuggestion(
                     DoctorSuggestion.StepStatus.WARNING, Optional.of("Area"), "Suggestion no2")));
 
     httpd = new HttpdForTests();
@@ -143,7 +147,7 @@ public class DoctorCommandIntegrationTest {
         createDoctorHelper(
             workspace,
             userInputFixture.getUserInput(),
-            DoctorConfig.of(FakeBuckConfig.builder().build()));
+            new ImmutableDoctorConfig(FakeBuckConfig.builder().build()));
     BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
     Optional<BuildLogEntry> entry =
         helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
@@ -277,7 +281,7 @@ public class DoctorCommandIntegrationTest {
               }
 
               DoctorJsonResponse json =
-                  DoctorJsonResponse.of(
+                  new ImmutableDoctorJsonResponse(
                       /* isRequestSuccessful */ true,
                       /* errorMessage */ Optional.empty(),
                       /* rageUrl */ Optional.of("http://remoteUrlToVisit"),
@@ -343,10 +347,7 @@ public class DoctorCommandIntegrationTest {
         reporter.getDefectReport().getExtraInfo(),
         Matchers.equalTo(Optional.of("Extra" + System.lineSeparator())));
     assertThat(
-        reporter
-            .getDefectReport()
-            .getIncludedPaths()
-            .stream()
+        reporter.getDefectReport().getIncludedPaths().stream()
             .map(Object::toString)
             .collect(Collectors.toList()),
         Matchers.hasItem(Matchers.endsWith("extra.txt")));

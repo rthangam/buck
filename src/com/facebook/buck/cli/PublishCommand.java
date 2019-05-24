@@ -20,13 +20,10 @@ import static com.facebook.buck.jvm.core.JavaLibrary.MAVEN_JAR;
 import static com.facebook.buck.jvm.core.JavaLibrary.SRC_JAR;
 import static com.facebook.buck.jvm.java.Javadoc.DOC_JAR;
 
-import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.maven.Publisher;
 import com.facebook.buck.parser.BuildTargetSpec;
@@ -131,7 +128,8 @@ public class PublishCommand extends BuildCommand {
     BuildRunResult buildRunResult;
     try (CommandThreadManager pool =
         new CommandThreadManager("Publish", getConcurrencyLimit(params.getBuckConfig()))) {
-      buildRunResult = super.run(params, pool, ImmutableSet.of());
+      buildRunResult =
+          super.run(params, pool, this::enhanceFlavorsForPublishing, ImmutableSet.of());
     }
 
     ExitCode exitCode = buildRunResult.getExitCode();
@@ -179,9 +177,7 @@ public class PublishCommand extends BuildCommand {
     try {
       ImmutableSet<DeployResult> deployResults =
           publisher.publish(
-              DefaultSourcePathResolver.from(
-                  new SourcePathRuleFinder(getBuild().getGraphBuilder())),
-              publishables.build());
+              getBuild().getGraphBuilder().getSourcePathResolver(), publishables.build());
       for (DeployResult deployResult : deployResults) {
         printArtifactsInformation(params, deployResult);
       }
@@ -208,13 +204,10 @@ public class PublishCommand extends BuildCommand {
     return artifact + " < " + artifact.getFile();
   }
 
-  @Override
-  public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
-    ImmutableList<TargetNodeSpec> specs =
-        super.parseArgumentsAsTargetNodeSpecs(cellPathResolver, config, targetsAsArgs);
+  private ImmutableList<TargetNodeSpec> enhanceFlavorsForPublishing(
+      ImmutableList<TargetNodeSpec> specs) {
 
-    Map<BuildTarget, TargetNodeSpec> uniqueSpecs = new HashMap<>();
+    Map<UnconfiguredBuildTargetView, TargetNodeSpec> uniqueSpecs = new HashMap<>();
     for (TargetNodeSpec spec : specs) {
       if (!(spec instanceof BuildTargetSpec)) {
         throw new IllegalArgumentException(
@@ -222,19 +215,22 @@ public class PublishCommand extends BuildCommand {
       }
 
       BuildTargetSpec targetSpec = (BuildTargetSpec) spec;
-      Objects.requireNonNull(targetSpec.getBuildTarget());
+      Objects.requireNonNull(targetSpec.getUnconfiguredBuildTargetView());
 
-      BuildTarget mavenTarget = targetSpec.getBuildTarget().withFlavors(MAVEN_JAR);
-      uniqueSpecs.put(mavenTarget, targetSpec.withBuildTarget(mavenTarget));
+      UnconfiguredBuildTargetView mavenTarget =
+          targetSpec.getUnconfiguredBuildTargetView().withFlavors(MAVEN_JAR);
+      uniqueSpecs.put(mavenTarget, BuildTargetSpec.from(mavenTarget));
 
       if (includeSource) {
-        BuildTarget sourceTarget = targetSpec.getBuildTarget().withFlavors(MAVEN_JAR, SRC_JAR);
-        uniqueSpecs.put(sourceTarget, targetSpec.withBuildTarget(sourceTarget));
+        UnconfiguredBuildTargetView sourceTarget =
+            targetSpec.getUnconfiguredBuildTargetView().withFlavors(MAVEN_JAR, SRC_JAR);
+        uniqueSpecs.put(sourceTarget, BuildTargetSpec.from(sourceTarget));
       }
 
       if (includeDocs) {
-        BuildTarget docsTarget = targetSpec.getBuildTarget().withFlavors(MAVEN_JAR, DOC_JAR);
-        uniqueSpecs.put(docsTarget, targetSpec.withBuildTarget(docsTarget));
+        UnconfiguredBuildTargetView docsTarget =
+            targetSpec.getUnconfiguredBuildTargetView().withFlavors(MAVEN_JAR, DOC_JAR);
+        uniqueSpecs.put(docsTarget, BuildTargetSpec.from(docsTarget));
       }
     }
 

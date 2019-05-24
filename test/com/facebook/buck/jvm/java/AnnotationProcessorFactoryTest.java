@@ -21,14 +21,15 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.jvm.java.AbstractJavacPluginProperties.Type;
+import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
 import com.facebook.buck.util.ClassLoaderCache;
 import java.io.IOException;
-import javax.tools.ToolProvider;
 import org.junit.Test;
 
 public class AnnotationProcessorFactoryTest {
@@ -52,12 +53,13 @@ public class AnnotationProcessorFactoryTest {
       String annotationProcessor, boolean canReuseClasspath) {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SourcePath classpath = FakeSourcePath.of("some/path/to.jar");
-    ClassLoader baseClassLoader = ToolProvider.getSystemToolClassLoader();
+    ClassLoader baseClassLoader = SynchronizedToolProvider.getSystemToolClassLoader();
     ClassLoaderCache classLoaderCache = new ClassLoaderCache();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:test");
     ResolvedJavacPluginProperties processorGroup =
         new ResolvedJavacPluginProperties(
             JavacPluginProperties.builder()
+                .setType(Type.ANNOTATION_PROCESSOR)
                 .addClasspathEntries(classpath)
                 .addProcessorNames(annotationProcessor)
                 .setCanReuseClassLoader(canReuseClasspath)
@@ -71,7 +73,7 @@ public class AnnotationProcessorFactoryTest {
             new AnnotationProcessorFactory(null, baseClassLoader, classLoaderCache, buildTarget)) {
       JavacPluginJsr199Fields fields =
           processorGroup.getJavacPluginJsr199Fields(
-              DefaultSourcePathResolver.from(null), filesystem);
+              new TestActionGraphBuilder().getSourcePathResolver(), filesystem);
       ClassLoader classLoader1 = factory1.getClassLoaderForProcessorGroup(fields);
       ClassLoader classLoader2 = factory2.getClassLoaderForProcessorGroup(fields);
       return classLoader1 == classLoader2;

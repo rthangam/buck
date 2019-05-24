@@ -17,13 +17,14 @@
 package com.facebook.buck.versions;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.cache.CacheStats;
 import com.facebook.buck.util.cache.CacheStatsTracker;
 import com.google.common.collect.ImmutableMap;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -48,16 +49,18 @@ public class InstrumentedVersionedTargetGraphCache {
   public VersionedTargetGraphCacheResult getVersionedTargetGraph(
       BuckEventBus eventBus,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool)
+      int numberOfThreads)
       throws VersionException, InterruptedException, TimeoutException {
     return cache.toVersionedTargetGraph(
         eventBus,
         versionUniverses,
         typeCoercerFactory,
+        unconfiguredBuildTargetFactory,
         targetGraphAndBuildTargets,
-        pool,
+        numberOfThreads,
         statsTracker);
   }
 
@@ -69,16 +72,18 @@ public class InstrumentedVersionedTargetGraphCache {
       BuckEventBus eventBus,
       BuckConfig buckConfig,
       TypeCoercerFactory typeCoercerFactory,
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets)
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      TargetGraphAndBuildTargets targetGraphAndBuildTargets,
+      TargetConfiguration targetConfiguration)
       throws VersionException, InterruptedException {
     return cache
         .getVersionedTargetGraph(
             eventBus,
+            buckConfig,
             typeCoercerFactory,
+            unconfiguredBuildTargetFactory,
             targetGraphAndBuildTargets,
-            new VersionBuckConfig(buckConfig).getVersionUniverses(),
-            new ForkJoinPool(buckConfig.getNumThreads()),
-            new VersionBuckConfig(buckConfig),
+            targetConfiguration,
             statsTracker)
         .getTargetGraphAndBuildTargets();
   }

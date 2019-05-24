@@ -26,6 +26,7 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -44,6 +45,7 @@ import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Objects;
@@ -196,6 +198,12 @@ public class KotlinLibraryDescription
     ImmutableList<String> getExtraKotlincArguments();
 
     Optional<AnnotationProcessingTool> getAnnotationProcessingTool();
+
+    ImmutableList<SourcePath> getFriendPaths();
+
+    ImmutableMap<String, String> getKaptApOptions();
+
+    ImmutableList<SourcePath> getKotlincPlugins();
   }
 
   @BuckStyleImmutable

@@ -23,7 +23,6 @@ import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.log.thrift.rulekeys.ByteArray;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
@@ -35,7 +34,6 @@ import com.facebook.buck.log.thrift.rulekeys.RuleKeyHash;
 import com.facebook.buck.log.thrift.rulekeys.Sha1;
 import com.facebook.buck.log.thrift.rulekeys.TargetPath;
 import com.facebook.buck.log.thrift.rulekeys.Value;
-import com.facebook.buck.rules.keys.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
 import java.nio.file.Path;
@@ -131,26 +129,17 @@ public class ThriftRuleKeyHasher implements RuleKeyHasher<FullRuleKey> {
   }
 
   @Override
-  public RuleKeyHasher<FullRuleKey> putArchiveMemberPath(ArchiveMemberPath path, HashCode hash) {
+  public RuleKeyHasher<FullRuleKey> putArchiveMemberPath(
+      Path relativeArchivePath, Path archiveMemberPath, HashCode hash) {
     return push(
         Value.archiveMemberPath(
             new com.facebook.buck.log.thrift.rulekeys.ArchiveMemberPath(
-                path.getArchivePath().toString(),
-                path.getMemberPath().toString(),
-                hash.toString())));
+                relativeArchivePath.toString(), archiveMemberPath.toString(), hash.toString())));
   }
 
   @Override
-  public RuleKeyHasher<FullRuleKey> putNonHashingPath(String path) {
-    return push(Value.path(new NonHashedPath(path)));
-  }
-
-  @Override
-  public RuleKeyHasher<FullRuleKey> putSourceRoot(SourceRoot sourceRoot) {
-    push(
-        Value.sourceRoot(
-            new com.facebook.buck.log.thrift.rulekeys.SourceRoot(sourceRoot.getName())));
-    return this;
+  public RuleKeyHasher<FullRuleKey> putNonHashingPath(Path path) {
+    return push(Value.path(new NonHashedPath(path.toString())));
   }
 
   @Override

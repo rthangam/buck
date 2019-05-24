@@ -44,7 +44,9 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
 
     Path basePath = target.getBasePath();
 
-    if (!targetCell.isEnforcingBuckPackageBoundaries(basePath)) {
+    if (!targetCell
+        .getBuckConfigView(ParserConfig.class)
+        .isEnforcingBuckPackageBoundaries(basePath)) {
       return;
     }
 
@@ -67,12 +69,12 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
         throw new IllegalStateException(
             String.format(
                 "Target '%s' refers to file '%s', which doesn't belong to any package. "
-                    + "More info at:\nhttps://buckbuild.com/about/overview.html\n",
+                    + "More info at:\nhttps://buck.build/about/overview.html\n",
                 target, path));
       }
 
       if (!ancestor.get().equals(basePath)) {
-        String buildFileName = targetCell.getBuildFileName();
+        String buildFileName = targetCell.getBuckConfigView(ParserConfig.class).getBuildFileName();
         Path buckFile = ancestor.get().resolve(buildFileName);
         // TODO(cjhopman): If we want to manually split error message lines ourselves, we should
         // have a utility to do it correctly after formatting instead of doing it manually.
@@ -84,7 +86,7 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
                 + "You should find or create a rule in '%3$s' that references\n"
                 + "'%2$s' and use that in '%1$s'\n"
                 + "instead of directly referencing '%2$s'.\n"
-                + "More info at:\nhttps://buckbuild.com/concept/build_rule.html\n"
+                + "More info at:\nhttps://buck.build/concept/build_rule.html\n"
                 + "\n"
                 + "This issue might also be caused by a bug in buckd's caching.\n"
                 + "Please check whether using `buck kill` resolves it.",

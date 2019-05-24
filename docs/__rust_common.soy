@@ -17,7 +17,7 @@
 
 /***/
 {template .supported_language_version}
-Note: Buck is currently tested with (and therefore supports) version 1.17.0 of Rust.
+Note: Buck is currently tested with (and therefore supports) version 1.32.0 of Rust.
 {/template}
 
 /***/
@@ -72,6 +72,20 @@ to allow for extra warnings, etc.
   <p>
     These are passed to <code>rustc</code> with <code>--cfg feature="{lb}feature{rb}"</code>,{sp}
     and can be used in the code with <code>#[cfg(feature = "{lb}feature{rb}")]</code>.
+  </p>
+  {/param}
+{/call}
+{/template}
+
+/***/
+{template .edition_arg}
+{call buck.arg}
+  {param name : 'edition' /}
+  {param desc}
+  <p>
+    Set the language edition to be used for this rule. Can be set to any edition the
+    compiler supports (<code>2018</code> right now). If unset it uses the compiler's default
+    (<code>2015</code>).
   </p>
   {/param}
 {/call}

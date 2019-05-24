@@ -35,7 +35,6 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -83,7 +82,6 @@ public class ApplePackageDescription
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     BuildRule bundle =
         graphBuilder.getRule(propagateFlavorsToTarget(buildTarget, args.getBundle()));
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
         getApplePackageConfig(buildTarget);
@@ -100,7 +98,8 @@ public class ApplePackageDescription
                       .add(bundle)
                       .addAll(
                           BuildableSupport.getDepsCollection(
-                              applePackageConfigAndPlatformInfo.get().getExpandedArg(), ruleFinder))
+                              applePackageConfigAndPlatformInfo.get().getExpandedArg(),
+                              graphBuilder))
                       .build()),
           applePackageConfigAndPlatformInfo.get(),
           Objects.requireNonNull(bundle.getSourcePathToOutput()),
@@ -201,7 +200,7 @@ public class ApplePackageDescription
       return ImmutableSet.of(
           toolchainProvider
               .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-              .getDefaultCxxPlatform()
+              .getDefaultUnresolvedCxxPlatform()
               .getFlavor());
     } else {
       return intersection.immutableCopy();

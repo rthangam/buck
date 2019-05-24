@@ -21,10 +21,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.BuckConfigTestUtils;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.support.cli.args.GlobalCliOptions;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.base.Joiner;
@@ -149,8 +149,7 @@ public class InstallCommandOptionsTest {
   }
 
   @Test
-  public void testInstallCommandOptionsMultiInstallMode()
-      throws CmdLineException, InterruptedException, IOException {
+  public void testInstallCommandOptionsMultiInstallMode() throws CmdLineException, IOException {
     // Short form.
     AdbOptions options = getAdbOptions(false, AdbCommandLineOptions.MULTI_INSTALL_MODE_SHORT_ARG);
     assertTrue(options.isMultiInstallModeEnabled());
@@ -165,8 +164,7 @@ public class InstallCommandOptionsTest {
   }
 
   @Test
-  public void testInstallCommandOptionsAdbThreads()
-      throws CmdLineException, InterruptedException, IOException {
+  public void testInstallCommandOptionsAdbThreads() throws CmdLineException, IOException {
     // Short form.
     AdbOptions options = getAdbOptions(false, AdbCommandLineOptions.ADB_THREADS_SHORT_ARG, "4");
     assertEquals(4, options.getAdbThreadCount());
@@ -181,8 +179,7 @@ public class InstallCommandOptionsTest {
   }
 
   @Test
-  public void testMultiInstallModeFromBuckConfig()
-      throws CmdLineException, InterruptedException, IOException {
+  public void testMultiInstallModeFromBuckConfig() throws CmdLineException, IOException {
     AdbOptions options = getAdbOptions(true);
     assertTrue(options.isMultiInstallModeEnabled());
 

@@ -43,8 +43,6 @@ standard_java_test(
         "//src/com/facebook/buck/jvm/java:steps",
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/abi/source/api:api",
-        "//src/com/facebook/buck/jvm/java/autodeps:SymbolExtractor",
-        "//src/com/facebook/buck/jvm/java/autodeps:autodeps",
         "//src/com/facebook/buck/jvm/java/classes:classes",
         "//src/com/facebook/buck/jvm/kotlin:kotlin",
         "//src/com/facebook/buck/jvm/scala:scala",
@@ -70,9 +68,7 @@ standard_java_test(
         "//src/com/facebook/buck/test/selectors:selectors",
         "//src/com/facebook/buck/testrunner:instrumentation",
         "//src/com/facebook/buck/testrunner:junit",
-        "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
-        "//src/com/facebook/buck/util:packaged_resource",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/cache:cache",
@@ -120,5 +116,15 @@ standard_java_test(
         "//third-party/java/okio:okio",
         "//third-party/java/stringtemplate:stringtemplate",
         "//third-party/java/thrift:libthrift",
+    ],
+)
+
+python_test(
+    name = "check-allowed-entries-in-testrunner-jar",
+    srcs = [
+        "check-allowed-entries-in-archive.py",
+    ],
+    resources = [
+        "//src/com/facebook/buck/testrunner:testrunner-bin-fixed",
     ],
 )

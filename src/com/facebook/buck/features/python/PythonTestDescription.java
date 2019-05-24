@@ -27,7 +27,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -35,18 +35,16 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.file.WriteFile;
@@ -59,6 +57,7 @@ import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
@@ -163,17 +162,19 @@ public class PythonTestDescription
         newBuildTarget, projectFilesystem, contents, outputPath, /* executable */ false);
   }
 
-  private CxxPlatform getCxxPlatform(BuildTarget target, AbstractPythonTestDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(
+      BuildTarget target, AbstractPythonTestDescriptionArg args) {
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     return cxxPlatforms
         .getValue(target)
         .orElse(
             args.getCxxPlatform()
                 .map(cxxPlatforms::getValue)
-                .orElse(cxxPlatformsProvider.getDefaultCxxPlatform()));
+                .orElse(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform()));
   }
 
   private static class PythonTestMainRule extends AbstractBuildRule {
@@ -242,9 +243,9 @@ public class PythonTestDescription
                     args.getPlatform()
                         .<Flavor>map(InternalFlavor::of)
                         .orElse(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    CxxPlatform cxxPlatform =
+        getCxxPlatform(buildTarget, args)
+            .resolve(graphBuilder, buildTarget.getTargetConfiguration());
     Path baseModule = PythonUtil.getBasePath(buildTarget, args.getBaseModule());
     Optional<ImmutableMap<BuildTarget, Version>> selectedVersions =
         context.getTargetGraph().get(buildTarget).getSelectedVersions();
@@ -253,8 +254,6 @@ public class PythonTestDescription
         PythonUtil.getModules(
             buildTarget,
             graphBuilder,
-            ruleFinder,
-            pathResolver,
             pythonPlatform,
             cxxPlatform,
             "srcs",
@@ -268,8 +267,6 @@ public class PythonTestDescription
         PythonUtil.getModules(
             buildTarget,
             graphBuilder,
-            ruleFinder,
-            pathResolver,
             pythonPlatform,
             cxxPlatform,
             "resources",
@@ -332,6 +329,7 @@ public class PythonTestDescription
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(cellRoots)
+            .setActionGraphBuilder(graphBuilder)
             .setExpanders(PythonUtil.MACRO_EXPANDERS)
             .build();
     PythonPackageComponents allComponents =
@@ -341,15 +339,13 @@ public class PythonTestDescription
             projectFilesystem,
             params,
             graphBuilder,
-            ruleFinder,
             deps,
             testComponents,
             pythonPlatform,
             cxxBuckConfig,
             cxxPlatform,
-            args.getLinkerFlags()
-                .stream()
-                .map(x -> macrosConverter.convert(x, graphBuilder))
+            args.getLinkerFlags().stream()
+                .map(macrosConverter::convert)
                 .collect(ImmutableList.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
             args.getPreloadDeps());
@@ -362,7 +358,6 @@ public class PythonTestDescription
             projectFilesystem,
             params,
             graphBuilder,
-            ruleFinder,
             pythonPlatform,
             cxxPlatform,
             mainModule,
@@ -412,11 +407,10 @@ public class PythonTestDescription
 
     Function<BuildRuleResolver, ImmutableMap<String, Arg>> testEnv =
         (ruleResolverInner) ->
-            ImmutableMap.copyOf(
-                Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder)));
+            ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert));
 
     // Additional CXX Targets used to generate CXX coverage.
-    ImmutableSet<UnflavoredBuildTarget> additionalCoverageTargets =
+    ImmutableSet<UnflavoredBuildTargetView> additionalCoverageTargets =
         RichStream.from(args.getAdditionalCoverageTargets())
             .map(target -> target.getUnflavoredBuildTarget())
             .collect(ImmutableSet.toImmutableSet());
@@ -424,7 +418,7 @@ public class PythonTestDescription
         additionalCoverageTargets.isEmpty()
             ? ImmutableSortedSet.of()
             : binary
-                .getRuntimeDeps(ruleFinder)
+                .getRuntimeDeps(graphBuilder)
                 .filter(
                     target -> additionalCoverageTargets.contains(target.getUnflavoredBuildTarget()))
                 .map(target -> DefaultBuildTargetSourcePath.of(target))
@@ -443,7 +437,11 @@ public class PythonTestDescription
         additionalCoverageSourcePaths,
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                cxxBuckConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
         args.getContacts());
   }
 
@@ -456,12 +454,17 @@ public class PythonTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
-    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLd().getParseTimeDeps());
+    extraDepsBuilder.addAll(
+        getCxxPlatform(buildTarget, constructorArg)
+            .getLinkerParseTimeDeps(buildTarget.getTargetConfiguration()));
 
     if (constructorArg.getPackageStyle().orElse(pythonBuckConfig.getPackageStyle())
         == PythonBuckConfig.PackageStyle.STANDALONE) {
-      Optionals.addIfPresent(pythonBuckConfig.getPexTarget(), extraDepsBuilder);
-      Optionals.addIfPresent(pythonBuckConfig.getPexExecutorTarget(), extraDepsBuilder);
+      Optionals.addIfPresent(
+          pythonBuckConfig.getPexTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+      Optionals.addIfPresent(
+          pythonBuckConfig.getPexExecutorTarget(buildTarget.getTargetConfiguration()),
+          extraDepsBuilder);
     }
   }
 

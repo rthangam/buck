@@ -37,6 +37,8 @@ export BUCK_ISOLATED_ROOT=$PWD
 
 export BUCK_PLUGIN_RESOURCES=$(resolve $BUCK_PLUGIN_RESOURCES)
 export BUCK_PLUGIN_ROOT=$(resolve $BUCK_PLUGIN_ROOT)
+# this env variable is used in some rules to check if build is running using BUCK
+export BUCK_BUILD_ID="RE_buck_build_id"
 
 cd $1
 
@@ -48,4 +50,3 @@ java -cp $CLASSPATH \
   com.facebook.buck.rules.modern.builders.OutOfProcessIsolatedBuilder \
   $BUCK_ISOLATED_ROOT $1 $2
 )
-

@@ -18,13 +18,14 @@ package com.facebook.buck.shell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -39,7 +40,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -105,11 +105,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     this.runtimeResourcesDir =
         BuildTargetPaths.getGenPath(
-            getProjectFilesystem(),
-            this.getBuildTarget(),
-            String.format(
-                "__%%s__/" + RUNTIME_RESOURCES_DIR,
-                this.getBuildTarget().getShortNameAndFlavorPostfix()));
+            getProjectFilesystem(), this.getBuildTarget(), "__%s__/" + RUNTIME_RESOURCES_DIR);
   }
 
   @Override
@@ -250,9 +246,9 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   // If the script is generated from another build rule, it needs to be available on disk
   // for this rule to be usable.
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
     return Stream.concat(resources.stream(), Stream.of(main))
-        .map(ruleFinder::filterBuildRuleInputs)
+        .map(buildRuleResolver::filterBuildRuleInputs)
         .flatMap(ImmutableSet::stream)
         .map(BuildRule::getBuildTarget);
   }
@@ -265,8 +261,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
           STEP_CATEGORY,
           projectFilesystem,
           buildCellRootPath,
-          resources
-              .stream()
+          resources.stream()
               .collect(
                   ImmutableMap.toImmutableMap(
                       input -> getSymlinkPath(resolver, input),
@@ -286,10 +281,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private Path getSymlinkPath(SourcePathResolver resolver, SourcePath input) {
     Path runtimeLinkPath = runtimeResourcesDir.resolve(deriveLinkPath(resolver, input));
 
-    return getBuildTarget()
-        .getCell()
-        .map(cell -> Paths.get(cell).resolve(runtimeLinkPath))
-        .orElse(runtimeLinkPath);
+    return getBuildTarget().getCellPath().resolve(runtimeLinkPath);
   }
 
   private ImmutableList<String> searchForLinkConflicts(SourcePathResolver resolver) {

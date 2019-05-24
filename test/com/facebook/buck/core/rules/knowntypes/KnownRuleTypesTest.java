@@ -21,10 +21,12 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.toolchain.Toolchain;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -76,7 +78,8 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     KnownRuleTypes knownRuleTypes1 =
         TestKnownRuleTypesFactory.create(
@@ -95,7 +98,8 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     KnownRuleTypes knownRuleTypes2 =
         TestKnownRuleTypesFactory.create(
@@ -117,7 +121,8 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create()) {
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE) {
           @Override
           public Toolchain getByName(String toolchainName) {
             throw new IllegalStateException(
@@ -145,7 +150,8 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     // This would throw if "default" weren't available as a platform.
     TestKnownRuleTypesFactory.create(
@@ -169,11 +175,16 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
     assertThat(
-        cxxPlatformsProvider.getCxxPlatforms().getValue(flavor).getCflags(),
+        cxxPlatformsProvider
+            .getUnresolvedCxxPlatforms()
+            .getValue(flavor)
+            .resolve(new TestActionGraphBuilder(), EmptyTargetConfiguration.INSTANCE)
+            .getCflags(),
         Matchers.contains(flag));
     TestKnownRuleTypesFactory.create(
         buckConfig, toolchainProvider, KnownRuleTypesTestUtil.createExecutor(temporaryFolder));
@@ -197,7 +208,8 @@ public class KnownRuleTypesTest {
             filesystem,
             KnownRuleTypesTestUtil.createExecutor(temporaryFolder),
             executableFinder,
-            TestRuleKeyConfigurationFactory.create());
+            TestRuleKeyConfigurationFactory.create(),
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     // It should be legal to override multiple host platforms even though
     // only one will be practically used in a build.

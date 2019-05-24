@@ -20,10 +20,11 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.OptionalInt;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,7 +32,7 @@ import org.junit.rules.ExpectedException;
 
 public class OptionalIntTypeCoercerTest {
 
-  private final Path basePath = MorePaths.EMPTY_PATH;
+  private final Path basePath = Paths.get("");
   private final ProjectFilesystem filesystem = new FakeProjectFilesystem();
   private final OptionalIntTypeCoercer coercer = new OptionalIntTypeCoercer();
   private final CellPathResolver cellRoots = TestCellBuilder.createCellRoots(filesystem);
@@ -62,6 +63,7 @@ public class OptionalIntTypeCoercerTest {
   }
 
   private OptionalInt coerce(Object object) throws CoerceFailedException {
-    return coercer.coerce(cellRoots, filesystem, basePath, object);
+    return coercer.coerce(
+        cellRoots, filesystem, basePath, EmptyTargetConfiguration.INSTANCE, object);
   }
 }

@@ -40,7 +40,6 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -58,7 +57,6 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.SortedSet;
 import java.util.function.Function;
 import org.junit.Rule;
 import org.junit.Test;
@@ -547,14 +545,10 @@ public class CommandAliasDescriptionTest {
   }
 
   private static RuleKey ruleKey(CommandAliasBuilder.BuildResult result, Object value) {
-    SourcePathResolver pathResolver = result.sourcePathResolver();
     SourcePathRuleFinder ruleFinder = result.ruleFinder();
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(ImmutableMap.of());
     return new UncachedRuleKeyBuilder(
-            ruleFinder,
-            pathResolver,
-            hashCache,
-            new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder))
+            ruleFinder, hashCache, new TestDefaultRuleKeyFactory(hashCache, ruleFinder))
         .setReflectively("key", value)
         .build(RuleKey::new);
   }
@@ -570,11 +564,6 @@ public class CommandAliasDescriptionTest {
     @Override
     public Tool getExecutableCommand() {
       return tool;
-    }
-
-    @Override
-    public SortedSet<BuildRule> getBuildDeps() {
-      return ImmutableSortedSet.of();
     }
   }
 

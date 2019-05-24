@@ -16,6 +16,7 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
@@ -24,19 +25,20 @@ import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
 import com.facebook.buck.core.build.engine.impl.MetadataChecker;
 import com.facebook.buck.core.build.engine.type.BuildType;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
@@ -50,13 +52,11 @@ import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
-import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.Clock;
@@ -83,6 +83,9 @@ public class LocalBuildExecutor implements BuildExecutor {
   private final Optional<BuildType> buildEngineMode;
   private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
   private final MetadataProvider metadataProvider;
+  private final UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory;
+  private final TargetConfiguration targetConfiguration;
+  private final TargetConfigurationSerializer targetConfigurationSerializer;
 
   private final CachingBuildEngine cachingBuildEngine;
   private final Build build;
@@ -102,7 +105,11 @@ public class LocalBuildExecutor implements BuildExecutor {
       Optional<BuildType> buildEngineMode,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger,
       RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter,
-      MetadataProvider metadataProvider) {
+      MetadataProvider metadataProvider,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      TargetConfiguration targetConfiguration,
+      TargetConfigurationSerializer targetConfigurationSerializer,
+      boolean whitelistedForRemoteExecution) {
     this.actionGraphAndBuilder = actionGraphAndBuilder;
     this.executorService = executorService;
     this.args = args;
@@ -112,9 +119,12 @@ public class LocalBuildExecutor implements BuildExecutor {
     this.ruleKeyCacheScope = ruleKeyRuleKeyCacheScope;
     this.remoteBuildRuleCompletionWaiter = remoteBuildRuleCompletionWaiter;
     this.metadataProvider = metadataProvider;
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+    this.targetConfiguration = targetConfiguration;
+    this.targetConfigurationSerializer = targetConfigurationSerializer;
 
     // Init resources.
-    this.cachingBuildEngine = createCachingBuildEngine();
+    this.cachingBuildEngine = createCachingBuildEngine(whitelistedForRemoteExecution);
     this.build =
         new Build(
             actionGraphAndBuilder.getActionGraphBuilder(),
@@ -135,8 +145,9 @@ public class LocalBuildExecutor implements BuildExecutor {
         FluentIterable.from(targetsToBuild)
             .transform(
                 targetName ->
-                    BuildTargetParser.INSTANCE.parseFullyQualified(
-                        args.getRootCell().getCellPathResolver(), targetName)),
+                    unconfiguredBuildTargetFactory
+                        .create(args.getRootCell().getCellPathResolver(), targetName)
+                        .configure(targetConfiguration)),
         pathToBuildReport);
   }
 
@@ -200,11 +211,12 @@ public class LocalBuildExecutor implements BuildExecutor {
         Iterables.transform(
             targetsToBuild,
             targetName ->
-                BuildTargetParser.INSTANCE.parseFullyQualified(
-                    args.getRootCell().getCellPathResolver(), targetName)));
+                unconfiguredBuildTargetFactory
+                    .create(args.getRootCell().getCellPathResolver(), targetName)
+                    .configure(targetConfiguration)));
   }
 
-  private CachingBuildEngine createCachingBuildEngine() {
+  private CachingBuildEngine createCachingBuildEngine(boolean whitelistedForRemoteExecution) {
     try {
       MetadataChecker.checkAndCleanIfNeeded(args.getRootCell());
     } catch (IOException e) {
@@ -213,8 +225,6 @@ public class LocalBuildExecutor implements BuildExecutor {
 
     CachingBuildEngineBuckConfig engineConfig =
         args.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
-    SourcePathRuleFinder sourcePathRuleFinder =
-        new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder());
 
     return new CachingBuildEngine(
         cachingBuildEngineDelegate,
@@ -226,17 +236,17 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getRootCell().getCellPathResolver(),
             cachingBuildEngineDelegate.getFileHashCache(),
             args.getBuckEventBus(),
-            metadataProvider),
+            metadataProvider,
+            whitelistedForRemoteExecution),
         executorService,
-        new DefaultStepRunner(),
         buildEngineMode.orElse(engineConfig.getBuildEngineMode()),
         engineConfig.getBuildMetadataStorage(),
         engineConfig.getBuildDepFiles(),
         engineConfig.getBuildMaxDepFileCacheEntries(),
         engineConfig.getBuildArtifactCacheSizeLimit(),
         actionGraphAndBuilder.getActionGraphBuilder(),
-        sourcePathRuleFinder,
-        DefaultSourcePathResolver.from(sourcePathRuleFinder),
+        actionGraphAndBuilder.getBuildEngineActionToBuildRuleResolver(),
+        targetConfigurationSerializer,
         args.getBuildInfoStoreManager(),
         engineConfig.getResourceAwareSchedulingInfo(),
         engineConfig.getConsoleLogBuildRuleFailuresInline(),
@@ -244,7 +254,7 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getRuleKeyConfiguration(),
             cachingBuildEngineDelegate.getFileHashCache(),
             actionGraphAndBuilder.getActionGraphBuilder(),
-            args.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+            args.getBuckConfig().getView(BuildBuckConfig.class).getBuildInputRuleKeyFileSizeLimit(),
             ruleKeyCacheScope.getCache(),
             ruleKeyLogger),
         remoteBuildRuleCompletionWaiter,

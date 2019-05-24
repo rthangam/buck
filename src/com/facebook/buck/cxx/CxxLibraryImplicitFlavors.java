@@ -20,7 +20,7 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,7 +44,7 @@ public class CxxLibraryImplicitFlavors {
     Optional<Flavor> typeFlavor = CxxLibraryDescription.LIBRARY_TYPE.getFlavor(argDefaultFlavors);
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
     Optional<Flavor> platformFlavor =
-        cxxPlatformsProvider.getCxxPlatforms().getFlavor(argDefaultFlavors);
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms().getFlavor(argDefaultFlavors);
 
     LOG.debug("Got arg default type %s platform %s", typeFlavor, platformFlavor);
 
@@ -67,7 +67,8 @@ public class CxxLibraryImplicitFlavors {
         ImmutableSortedSet.of(
             // Default to static if not otherwise specified.
             typeFlavor.orElse(CxxDescriptionEnhancer.STATIC_FLAVOR),
-            platformFlavor.orElse(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor()));
+            platformFlavor.orElse(
+                cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor()));
 
     LOG.debug("Got default flavors %s for rule types %s", result, Arrays.toString(types));
     return result;

@@ -15,7 +15,10 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -35,11 +38,11 @@ import java.io.IOException;
 import org.pf4j.PluginManager;
 
 public class TestParserFactory {
-  public static Parser create(BuckConfig buckConfig) {
+  public static Parser create(DepsAwareExecutor<? super ComputeResult, ?> executor, Cell cell) {
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
-    return create(buckConfig, knownRuleTypesProvider);
+    return create(executor, cell, knownRuleTypesProvider);
   }
 
   private static ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
@@ -48,40 +51,53 @@ public class TestParserFactory {
   }
 
   public static Parser create(
-      BuckConfig buckConfig, KnownRuleTypesProvider knownRuleTypesProvider, BuckEventBus eventBus) {
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
+      Cell cell,
+      KnownRuleTypesProvider knownRuleTypesProvider,
+      BuckEventBus eventBus) {
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
-    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     return create(
-        buckConfig,
+        executor,
+        cell,
         PerBuildStateFactory.createFactory(
             typeCoercerFactory,
             new DefaultConstructorArgMarshaller(typeCoercerFactory),
             knownRuleTypesProvider,
             new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
-            buckConfig,
             WatchmanFactory.NULL_WATCHMAN,
             eventBus,
             getManifestSupplier(),
-            new FakeFileHashCache(ImmutableMap.of())),
+            new FakeFileHashCache(ImmutableMap.of()),
+            new ParsingUnconfiguredBuildTargetViewFactory()),
         eventBus);
   }
 
   public static Parser create(
-      BuckConfig buckConfig, KnownRuleTypesProvider knownRuleTypesProvider) {
-    return create(buckConfig, knownRuleTypesProvider, BuckEventBusForTests.newInstance());
-  }
-
-  public static Parser create(BuckConfig buckConfig, PerBuildStateFactory perBuildStateFactory) {
-    return create(buckConfig, perBuildStateFactory, BuckEventBusForTests.newInstance());
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
+      Cell cell,
+      KnownRuleTypesProvider knownRuleTypesProvider) {
+    return create(executor, cell, knownRuleTypesProvider, BuckEventBusForTests.newInstance());
   }
 
   public static Parser create(
-      BuckConfig buckConfig, PerBuildStateFactory perBuildStateFactory, BuckEventBus eventBus) {
-    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
-    return new DefaultParser(
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
+      Cell cell,
+      PerBuildStateFactory perBuildStateFactory) {
+    return create(executor, cell, perBuildStateFactory, BuckEventBusForTests.newInstance());
+  }
+
+  public static Parser create(
+      DepsAwareExecutor<? super ComputeResult, ?> executor,
+      Cell cell,
+      PerBuildStateFactory perBuildStateFactory,
+      BuckEventBus eventBus) {
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
+
+    return new ParserWithConfigurableAttributes(
         new DaemonicParserState(parserConfig.getNumParsingThreads()),
         perBuildStateFactory,
-        new TargetSpecResolver(eventBus, WatchmanFactory.NULL_WATCHMAN),
+        TestTargetSpecResolverFactory.create(executor, cell.getCellProvider(), eventBus),
         eventBus,
         ImmutableList::of);
   }

@@ -17,8 +17,6 @@
 package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
-import static org.easymock.EasyMock.createNiceMock;
-import static org.easymock.EasyMock.replay;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -33,6 +31,7 @@ import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -52,7 +51,6 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -61,7 +59,7 @@ import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.jvm.java.AbstractJavacPluginProperties.Type;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -70,9 +68,7 @@ import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -97,6 +93,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.Hashing;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
@@ -113,7 +110,8 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
-  private static final String ANNOTATION_SCENARIO_TARGET = "//android/java/src/com/facebook:fb";
+
+  private static final String TEST_SCENARIO_TARGET = "//android/java/src/com/facebook:fb";
 
   @Rule public TemporaryFolder tmp = new TemporaryFolder();
   private String annotationScenarioGenPath;
@@ -128,9 +126,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot().toPath());
-    StepRunner stepRunner = createNiceMock(StepRunner.class);
-    JavaPackageFinder packageFinder = createNiceMock(JavaPackageFinder.class);
-    replay(packageFinder, stepRunner);
 
     annotationScenarioGenPath =
         filesystem
@@ -168,7 +163,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testJavaLibaryThrowsIfResourceIsDirectory() {
+  public void testJavaLibraryThrowsIfResourceIsDirectory() {
     ProjectFilesystem filesystem =
         new AllExistingProjectFilesystem() {
           @Override
@@ -187,23 +182,214 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     }
   }
 
-  /** Verify adding an annotation processor java binary. */
-  @Test
-  public void testAddAnnotationProcessorJavaBinary() throws Exception {
-    AnnotationProcessingScenario scenario = new AnnotationProcessingScenario();
-    scenario.addAnnotationProcessorTarget(validJavaBinary);
+  private void assertHasClasspathType(
+      List<String> params, String classpathType, String expectedClasspath) {
+    int index = params.indexOf("-" + classpathType);
+    if (index >= params.size()) {
+      fail(String.format("No classpath argument found in %s.", params));
+    }
 
-    scenario
-        .getAnnotationProcessingParamsBuilder()
-        .setLegacyAnnotationProcessorNames(ImmutableList.of("MyProcessor"));
+    String realClasspath = params.get(index + 1);
+    if (!realClasspath.equals(expectedClasspath)) {
+      fail(
+          String.format(
+              "Expected " + classpathType + ":\n%s\nIs not equal to the real one in:\n%s.",
+              expectedClasspath,
+              params));
+    }
+  }
+
+  private void assertHasClasspath(List<String> params, String expectedClasspath) {
+    assertHasClasspathType(params, "classpath", expectedClasspath);
+  }
+
+  private void assertHasProcessorPath(List<String> params, String expectedClasspath) {
+    assertHasClasspathType(params, "processorpath", expectedClasspath);
+  }
+
+  private String resolveClasspath(BuildRule rule) {
+    return resolveClasspathPath(rule).toString();
+  }
+
+  private Path resolveClasspathPath(BuildRule rule) {
+    return rule.getProjectFilesystem()
+        .resolve(
+            graphBuilder.getSourcePathResolver().getAbsolutePath(rule.getSourcePathToOutput()));
+  }
+
+  private void assertCorrectStandardJavacPluginParameters(
+      ImmutableList<String> parameters,
+      String expectedClasspath,
+      ImmutableList<String> pluginNames) {
+
+    assertHasProcessorPath(parameters, expectedClasspath);
+    for (String name : pluginNames) {
+      MoreAsserts.assertContainsOne(parameters, "-Xplugin:" + name);
+    }
+  }
+
+  private void testValidStandardJavacPluginFrom(
+      ImmutableList<String> pluginNames, ImmutableList<TestBuildTargetTarget> testTargets)
+      throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    StringBuilder classpath = new StringBuilder();
+
+    for (int i = 0; i < testTargets.size(); i++) {
+      TestBuildTargetTarget testTarget = testTargets.get(i);
+
+      BuildTarget target = testTarget.createTarget();
+      BuildRule rule = testTarget.createRule(target);
+      scenario.addStandardJavacPluginTarget(rule, pluginNames.get(i));
+
+      classpath.append(resolveClasspath(rule));
+
+      if (i != testTargets.size() - 1) {
+        classpath.append(File.pathSeparator);
+      }
+    }
+
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertCorrectStandardJavacPluginParameters(parameters, classpath.toString(), pluginNames);
+  }
+
+  private void testValidStandardJavacPluginFrom(String pluginName, TestBuildTargetTarget target)
+      throws Exception {
+    testValidStandardJavacPluginFrom(ImmutableList.of(pluginName), ImmutableList.of(target));
+  }
+
+  @Test
+  public void testAddJavacPluginPrebuiltJar() throws Exception {
+    testValidStandardJavacPluginFrom("PrebuiltPlugin", validPrebuiltJar);
+  }
+
+  @Test
+  public void testAddJavacPluginJavaLibrary() throws Exception {
+    testValidStandardJavacPluginFrom("JavaLibPlugin", validJavaLibrary);
+  }
+
+  @Test
+  public void testAddJavacPluginJavaBinary() throws Exception {
+    testValidStandardJavacPluginFrom("JavaBin", validJavaBinary);
+  }
+
+  @Test
+  public void testMultipleJavacPlugins() throws Exception {
+    testValidStandardJavacPluginFrom(
+        ImmutableList.of("Prebuilt", "JavaLib", "JavaBin"),
+        ImmutableList.of(validPrebuiltJar, validJavaLibrary, validJavaBinary));
+  }
+
+  @Test
+  public void testJavacPluginsWithOptions() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    BuildTarget target = validJavaBinary.createTarget();
+    BuildRule rule = validJavaBinary.createRule(target);
+
+    scenario.addStandardJavacPluginTarget(rule, "MyPlugin");
+
+    scenario.getStandardJavacPluginParamsBuilder().addParameters("MyParameter");
+    scenario.getStandardJavacPluginParamsBuilder().addParameters("MyKey=MyValue");
 
     ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
 
+    MoreAsserts.assertContainsOne(parameters, "MyParameter");
+    MoreAsserts.assertContainsOne(parameters, "MyKey=MyValue");
+  }
+
+  @Test
+  public void testNoJavacPluginAndNoDeps_WillResultInEmptyClasspath() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertHasClasspath(parameters, "''");
+  }
+
+  @Test
+  public void testNoJavacPluginAndWithDeps_WillResultInDepsClasspath() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+
+    BuildTarget target = validJavaLibrary.createTarget();
+    BuildRule rule = validJavaLibrary.createRule(target);
+    Path classpath = resolveClasspathPath(rule);
+
+    ImmutableList<String> parameters =
+        scenario.buildAndGetCompileParameters(ImmutableSortedSet.of(classpath));
+
+    assertHasClasspath(parameters, classpath.toString());
+    assertEquals(
+        String.format("-processorpath was specified when it shouldn't in %s.", parameters),
+        -1,
+        parameters.indexOf("-processorpath"));
+  }
+
+  @Test
+  public void testWithJavacPluginAndAnnotationProcessors_WillResultInBothProcessorPath()
+      throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+
+    BuildTarget apTarget = validJavaBinary.createTarget();
+    BuildRule apRule = validJavaBinary.createRule(apTarget);
+    String apClasspathPath = resolveClasspath(apRule);
+
+    BuildTarget pluginTarget = validJavaLibrary.createTarget();
+    BuildRule pluginRule = validJavaLibrary.createRule(pluginTarget);
+    String pluginClasspath = resolveClasspath(pluginRule);
+
+    scenario.addAnnotationProcessorRule(apRule, "MyProcessor");
+    scenario.addStandardJavacPluginTarget(pluginRule, "MyPlugin");
+
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+
+    assertHasProcessorPath(parameters, apClasspathPath + File.pathSeparator + pluginClasspath);
+  }
+
+  private void assertHasProcessor(List<String> params, String processor) {
+    int index = params.indexOf("-processor");
+    if (index >= params.size()) {
+      fail(String.format("No processor argument found in %s.", params));
+    }
+
+    Set<String> processors = ImmutableSet.copyOf(Splitter.on(',').split(params.get(index + 1)));
+    if (!processors.contains(processor)) {
+      fail(String.format("Annotation processor %s not found in %s.", processor, params));
+    }
+  }
+
+  private void assertCorrectAnnotationProcessorParameters(ImmutableList<String> parameters) {
     MoreAsserts.assertContainsOne(parameters, "-processorpath");
     MoreAsserts.assertContainsOne(parameters, "-processor");
     assertHasProcessor(parameters, "MyProcessor");
     MoreAsserts.assertContainsOne(parameters, "-s");
     MoreAsserts.assertContainsOne(parameters, annotationScenarioGenPath);
+  }
+
+  /** Verify adding an annotation processor prebuilt jar. */
+  @Test
+  public void testAddAnnotationProcessorPrebuiltJar() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    scenario.addAnnotationProcessorTarget(validPrebuiltJar, "MyProcessor");
+
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertCorrectAnnotationProcessorParameters(parameters);
+  }
+
+  /** Verify adding an annotation processor java library. */
+  @Test
+  public void testAddAnnotationProcessorJavaLibrary() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    scenario.addAnnotationProcessorTarget(validJavaBinary, "MyProcessor");
+
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertCorrectAnnotationProcessorParameters(parameters);
+  }
+
+  /** Verify adding an annotation processor java binary. */
+  @Test
+  public void testAddAnnotationProcessorJavaBinary() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    scenario.addAnnotationProcessorTarget(validJavaBinary, "MyProcessor");
+
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertCorrectAnnotationProcessorParameters(parameters);
 
     assertEquals(
         "Expected '-processor MyProcessor' parameters",
@@ -219,55 +405,29 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     }
   }
 
-  /** Verify adding an annotation processor prebuilt jar. */
-  @Test
-  public void testAddAnnotationProcessorPrebuiltJar() throws Exception {
-    AnnotationProcessingScenario scenario = new AnnotationProcessingScenario();
-    scenario.addAnnotationProcessorTarget(validPrebuiltJar);
-
-    scenario
-        .getAnnotationProcessingParamsBuilder()
-        .setLegacyAnnotationProcessorNames(ImmutableList.of("MyProcessor"));
-
-    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
-
-    MoreAsserts.assertContainsOne(parameters, "-processorpath");
-    MoreAsserts.assertContainsOne(parameters, "-processor");
-    assertHasProcessor(parameters, "MyProcessor");
-    MoreAsserts.assertContainsOne(parameters, "-s");
-    MoreAsserts.assertContainsOne(parameters, annotationScenarioGenPath);
-  }
-
-  /** Verify adding an annotation processor java library. */
-  @Test
-  public void testAddAnnotationProcessorJavaLibrary() throws Exception {
-    AnnotationProcessingScenario scenario = new AnnotationProcessingScenario();
-    scenario.addAnnotationProcessorTarget(validPrebuiltJar);
-
-    scenario
-        .getAnnotationProcessingParamsBuilder()
-        .setLegacyAnnotationProcessorNames(ImmutableList.of("MyProcessor"));
-
-    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
-
-    MoreAsserts.assertContainsOne(parameters, "-processorpath");
-    MoreAsserts.assertContainsOne(parameters, "-processor");
-    assertHasProcessor(parameters, "MyProcessor");
-    MoreAsserts.assertContainsOne(parameters, "-s");
-    MoreAsserts.assertContainsOne(parameters, annotationScenarioGenPath);
-  }
-
   /** Verify adding multiple annotation processors. */
   @Test
-  public void testAddAnnotationProcessorJar() throws Exception {
-    AnnotationProcessingScenario scenario = new AnnotationProcessingScenario();
-    scenario.addAnnotationProcessorTarget(validPrebuiltJar);
-    scenario.addAnnotationProcessorTarget(validJavaBinary);
-    scenario.addAnnotationProcessorTarget(validJavaLibrary);
+  public void testAddMultipleAnnotationProcessorJar() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    scenario.addAnnotationProcessorTarget(validPrebuiltJar, "MyProcessor");
+    scenario.addAnnotationProcessorTarget(validJavaBinary, "MyOtherProcessor");
+    scenario.addAnnotationProcessorTarget(validJavaLibrary, "MyThirdProcessor");
 
-    scenario
-        .getAnnotationProcessingParamsBuilder()
-        .setLegacyAnnotationProcessorNames(ImmutableList.of("MyProcessor"));
+    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
+    assertCorrectAnnotationProcessorParameters(parameters);
+    assertHasProcessor(parameters, "MyOtherProcessor");
+    assertHasProcessor(parameters, "MyThirdProcessor");
+  }
+
+  /** Verify adding an annotation processor java binary with options. */
+  @Test
+  public void testAddAnnotationProcessorWithOptions() throws Exception {
+    TestJavaPluginScenario scenario = new TestJavaPluginScenario();
+    scenario.addAnnotationProcessorTarget(validJavaBinary, "MyProcessor");
+
+    scenario.getAnnotationProcessingParamsBuilder().addParameters("MyParameter");
+    scenario.getAnnotationProcessingParamsBuilder().addParameters("MyKey=MyValue");
+    scenario.getAnnotationProcessingParamsBuilder().setProcessOnly(true);
 
     ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
 
@@ -276,6 +436,19 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     assertHasProcessor(parameters, "MyProcessor");
     MoreAsserts.assertContainsOne(parameters, "-s");
     MoreAsserts.assertContainsOne(parameters, annotationScenarioGenPath);
+    MoreAsserts.assertContainsOne(parameters, "-proc:only");
+
+    assertEquals(
+        "Expected '-processor MyProcessor' parameters",
+        parameters.indexOf("-processor") + 1,
+        parameters.indexOf("MyProcessor"));
+    assertEquals(
+        "Expected '-s " + annotationScenarioGenPath + "' parameters",
+        parameters.indexOf("-s") + 1,
+        parameters.indexOf(annotationScenarioGenPath));
+
+    MoreAsserts.assertContainsOne(parameters, "-AMyParameter");
+    MoreAsserts.assertContainsOne(parameters, "-AMyKey=MyValue");
   }
 
   @Test
@@ -307,9 +480,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     JavaLibrary libraryOneRule = (JavaLibrary) graphBuilder.requireRule(libraryOneTarget);
     JavaLibrary parentRule = (JavaLibrary) graphBuilder.requireRule(parentTarget);
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-
     Path root = libraryOneRule.getProjectFilesystem().getRootPath();
     assertEquals(
         ImmutableSet.of(
@@ -318,7 +488,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             root.resolve(
                 AbstractCompilerOutputPaths.getOutputJarPath(libraryTwoTarget, filesystem)),
             root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(parentTarget, filesystem))),
-        resolve(parentRule.getTransitiveClasspaths(), pathResolver));
+        resolve(parentRule.getTransitiveClasspaths(), graphBuilder.getSourcePathResolver()));
   }
 
   @Test
@@ -382,12 +552,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     DefaultJavaLibrary libraryTwoRule =
         (DefaultJavaLibrary) graphBuilder.requireRule(libraryTwoTarget);
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-
     List<Step> steps =
         libraryTwoRule.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
+            FakeBuildContext.withSourcePathResolver(graphBuilder.getSourcePathResolver()),
+            new FakeBuildableContext());
 
     ImmutableList<JavacStep> javacSteps =
         FluentIterable.from(steps).filter(JavacStep.class).toList();
@@ -402,7 +570,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     String expectedName = expectedRule.getFullyQualifiedName();
     assertEquals(
         "The classpath for the javac step to compile //:libtwo should contain only " + expectedName,
-        ImmutableSet.of(pathResolver.getAbsolutePath(expectedRule.getSourcePathToOutput())),
+        ImmutableSet.of(
+            graphBuilder
+                .getSourcePathResolver()
+                .getAbsolutePath(expectedRule.getSourcePathToOutput())),
         javacStep.getClasspathEntries());
   }
 
@@ -426,56 +597,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     assertFalse(
         "The predicate for dep file shouldn't contain annotation processor deps",
         libraryTwo
-            .getCoveredByDepFilePredicate(
-                DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)))
+            .getCoveredByDepFilePredicate(graphBuilder.getSourcePathResolver())
             .test(sourcePath));
-  }
-
-  /** Verify adding an annotation processor java binary with options. */
-  @Test
-  public void testAddAnnotationProcessorWithOptions() throws Exception {
-    AnnotationProcessingScenario scenario = new AnnotationProcessingScenario();
-    scenario.addAnnotationProcessorTarget(validJavaBinary);
-
-    scenario
-        .getAnnotationProcessingParamsBuilder()
-        .setLegacyAnnotationProcessorNames(ImmutableList.of("MyProcessor"));
-    scenario.getAnnotationProcessingParamsBuilder().addParameters("MyParameter");
-    scenario.getAnnotationProcessingParamsBuilder().addParameters("MyKey=MyValue");
-    scenario.getAnnotationProcessingParamsBuilder().setProcessOnly(true);
-
-    ImmutableList<String> parameters = scenario.buildAndGetCompileParameters();
-
-    MoreAsserts.assertContainsOne(parameters, "-processorpath");
-    MoreAsserts.assertContainsOne(parameters, "-processor");
-    assertHasProcessor(parameters, "MyProcessor");
-    MoreAsserts.assertContainsOne(parameters, "-s");
-    MoreAsserts.assertContainsOne(parameters, annotationScenarioGenPath);
-    MoreAsserts.assertContainsOne(parameters, "-proc:only");
-
-    assertEquals(
-        "Expected '-processor MyProcessor' parameters",
-        parameters.indexOf("-processor") + 1,
-        parameters.indexOf("MyProcessor"));
-    assertEquals(
-        "Expected '-s " + annotationScenarioGenPath + "' parameters",
-        parameters.indexOf("-s") + 1,
-        parameters.indexOf(annotationScenarioGenPath));
-
-    MoreAsserts.assertContainsOne(parameters, "-AMyParameter");
-    MoreAsserts.assertContainsOne(parameters, "-AMyKey=MyValue");
-  }
-
-  private void assertHasProcessor(List<String> params, String processor) {
-    int index = params.indexOf("-processor");
-    if (index >= params.size()) {
-      fail(String.format("No processor argument found in %s.", params));
-    }
-
-    Set<String> processors = ImmutableSet.copyOf(Splitter.on(',').split(params.get(index + 1)));
-    if (!processors.contains(processor)) {
-      fail(String.format("Annotation processor %s not found in %s.", processor, params));
-    }
   }
 
   @Test
@@ -675,8 +798,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         TargetGraphFactory.newInstance(
             notIncludedNode, includedNode, libraryOneNode, libraryTwoNode, parentNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
 
     BuildRule notIncluded = graphBuilder.requireRule(notIncludedNode.getBuildTarget());
     BuildRule included = graphBuilder.requireRule(includedNode.getBuildTarget());
@@ -866,8 +988,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   @Test
   public void testInputBasedRuleKeySourceChange() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = graphBuilder;
+    SourcePathResolver pathResolver = ruleFinder.getSourcePathResolver();
 
     // Setup a Java library consuming a source generated by a genrule and grab its rule key.
     BuildRule genSrc =
@@ -884,7 +1006,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     FileHashCache originalHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     InputBasedRuleKeyFactory factory =
-        new TestInputBasedRuleKeyFactory(originalHashCache, pathResolver, ruleFinder);
+        new TestInputBasedRuleKeyFactory(originalHashCache, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
 
     // Now change the genrule such that its rule key changes, but it's output stays the same (since
@@ -902,7 +1024,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build(graphBuilder, filesystem);
     FileHashCache unaffectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
@@ -921,7 +1043,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build(graphBuilder, filesystem);
     FileHashCache affectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
@@ -943,8 +1065,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(depNode, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = graphBuilder;
+    SourcePathResolver pathResolver = ruleFinder.getSourcePathResolver();
 
     JavaLibrary dep = (JavaLibrary) graphBuilder.requireRule(depNode.getBuildTarget());
     JavaLibrary library = (JavaLibrary) graphBuilder.requireRule(libraryNode.getBuildTarget());
@@ -960,7 +1082,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     FileHashCache originalHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     InputBasedRuleKeyFactory factory =
-        new TestInputBasedRuleKeyFactory(originalHashCache, pathResolver, ruleFinder);
+        new TestInputBasedRuleKeyFactory(originalHashCache, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
 
     // Now change the Java library dependency such that its rule key changes, and change its JAR
@@ -973,8 +1095,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
     targetGraph = TargetGraphFactory.newInstance(depNode, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
+    pathResolver = ruleFinder.getSourcePathResolver();
 
     dep = (JavaLibrary) graphBuilder.requireRule(depNode.getBuildTarget());
     library = (JavaLibrary) graphBuilder.requireRule(libraryNode.getBuildTarget());
@@ -983,15 +1105,15 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "different JAR contents", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the Java library dependency's ABI JAR.  This *should* affect the
     // input-based rule key of the consuming java library.
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
+    pathResolver = ruleFinder.getSourcePathResolver();
 
     dep = (JavaLibrary) graphBuilder.requireRule(depNode.getBuildTarget());
     library = (JavaLibrary) graphBuilder.requireRule(libraryNode.getBuildTarget());
@@ -1004,7 +1126,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
@@ -1033,8 +1155,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(exportedDepNode, depNode, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = graphBuilder;
+    SourcePathResolver pathResolver = ruleFinder.getSourcePathResolver();
 
     JavaLibrary exportedDep =
         (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
@@ -1053,7 +1175,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     FileHashCache originalHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     InputBasedRuleKeyFactory factory =
-        new TestInputBasedRuleKeyFactory(originalHashCache, pathResolver, ruleFinder);
+        new TestInputBasedRuleKeyFactory(originalHashCache, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
 
     // Now change the exported Java library dependency such that its rule key changes, and change
@@ -1067,8 +1189,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
     targetGraph = TargetGraphFactory.newInstance(exportedDepNode, depNode, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
+    pathResolver = ruleFinder.getSourcePathResolver();
 
     exportedDep = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -1078,28 +1200,29 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the exproted Java library dependency's ABI JAR.  This *should* affect
     // the input-based rule key of the consuming java library.
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
 
     exportedDep = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
     writeAbiJar(
         filesystem,
-        pathResolver.getRelativePath(
-            graphBuilder.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
+        ruleFinder
+            .getSourcePathResolver()
+            .getRelativePath(
+                graphBuilder.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
@@ -1134,8 +1257,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(exportedDepNode, dep2Node, dep1Node, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = graphBuilder;
+    SourcePathResolver pathResolver = ruleFinder.getSourcePathResolver();
 
     JavaLibrary exportedDep =
         (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
@@ -1153,7 +1276,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     FileHashCache originalHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     InputBasedRuleKeyFactory factory =
-        new TestInputBasedRuleKeyFactory(originalHashCache, pathResolver, ruleFinder);
+        new TestInputBasedRuleKeyFactory(originalHashCache, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
 
     // Now change the exported Java library dependency such that its rule key changes, and change
@@ -1167,8 +1290,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
     targetGraph = TargetGraphFactory.newInstance(exportedDepNode, dep2Node, dep1Node, libraryNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
+    pathResolver = ruleFinder.getSourcePathResolver();
 
     exportedDep = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -1178,28 +1301,29 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(unaffectedHashCache, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the exproted Java library dependency's ABI JAR.  This *should* affect
     // the input-based rule key of the consuming java library.
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ruleFinder = graphBuilder;
 
     exportedDep = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) graphBuilder.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
     writeAbiJar(
         filesystem,
-        pathResolver.getRelativePath(
-            graphBuilder.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
+        ruleFinder
+            .getSourcePathResolver()
+            .getRelativePath(
+                graphBuilder.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
-    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, pathResolver, ruleFinder);
+    factory = new TestInputBasedRuleKeyFactory(affectedHashCache, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
@@ -1228,8 +1352,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .orElse(DEFAULT_JAVAC_OPTIONS);
 
     JavaLibraryDeps.Builder depsBuilder = new JavaLibraryDeps.Builder(graphBuilder);
-    exportedDeps
-        .stream()
+    exportedDeps.stream()
         .peek(graphBuilder::addToIndex)
         .map(BuildRule::getBuildTarget)
         .forEach(depsBuilder::addExportedDepTargets);
@@ -1272,8 +1395,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
           }
         };
     ActionGraphBuilder graphBuilder1 = new TestActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder1 = new SourcePathRuleFinder(graphBuilder1);
-    SourcePathResolver pathResolver1 = DefaultSourcePathResolver.from(ruleFinder1);
+    SourcePathRuleFinder ruleFinder1 = graphBuilder1;
     DefaultJavaLibrary rule1 =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//lib:lib"))
             .addSrc(Paths.get("agifhbkjdec.java"))
@@ -1287,8 +1409,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build(graphBuilder1, filesystem);
 
     ActionGraphBuilder graphBuilder2 = new TestActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder2 = new SourcePathRuleFinder(graphBuilder2);
-    SourcePathResolver pathResolver2 = DefaultSourcePathResolver.from(ruleFinder2);
+    SourcePathRuleFinder ruleFinder2 = graphBuilder2;
     DefaultJavaLibrary rule2 =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//lib:lib"))
             .addSrc(Paths.get("cfiabkjehgd.java"))
@@ -1316,10 +1437,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     }
     DefaultRuleKeyFactory ruleKeyFactory =
         new TestDefaultRuleKeyFactory(
-            FakeFileHashCache.createFromStrings(fileHashes.build()), pathResolver1, ruleFinder1);
+            FakeFileHashCache.createFromStrings(fileHashes.build()), ruleFinder1);
     DefaultRuleKeyFactory ruleKeyFactory2 =
         new TestDefaultRuleKeyFactory(
-            FakeFileHashCache.createFromStrings(fileHashes.build()), pathResolver2, ruleFinder2);
+            FakeFileHashCache.createFromStrings(fileHashes.build()), ruleFinder2);
 
     RuleKey key1 = ruleKeyFactory.build(rule1);
     RuleKey key2 = ruleKeyFactory2.build(rule2);
@@ -1336,8 +1457,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     DefaultJavaLibrary buildRule = rule;
     ImmutableList<Step> steps =
         buildRule.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(
-                DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
+            FakeBuildContext.withSourcePathResolver(graphBuilder.getSourcePathResolver()),
             new FakeBuildableContext());
 
     assertEquals(26, steps.size());
@@ -1361,8 +1481,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(javacNode, ruleNode);
     graphBuilder = new TestActionGraphBuilder(targetGraph);
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
 
     BuildRule javac = graphBuilder.requireRule(javacTarget);
     BuildRule rule = graphBuilder.requireRule(libraryOneTarget);
@@ -1370,8 +1489,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     DefaultJavaLibrary buildable = (DefaultJavaLibrary) rule;
     ImmutableList<Step> steps =
         buildable.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(
-                DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
+            FakeBuildContext.withSourcePathResolver(graphBuilder.getSourcePathResolver()),
             new FakeBuildableContext());
     assertEquals(26, steps.size());
     JavacStep javacStep = getJavacStep(steps);
@@ -1417,14 +1535,14 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
   // test.
   private BuildContext createBuildContext() {
-    return FakeBuildContext.withSourcePathResolver(
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)));
+    return FakeBuildContext.withSourcePathResolver(graphBuilder.getSourcePathResolver());
   }
 
-  private abstract static class AnnotationProcessorTarget {
+  private abstract static class TestBuildTargetTarget {
+
     private final String targetName;
 
-    private AnnotationProcessorTarget(String targetName) {
+    private TestBuildTargetTarget(String targetName) {
       this.targetName = targetName;
     }
 
@@ -1435,8 +1553,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     public abstract BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException;
   }
 
-  private AnnotationProcessorTarget validPrebuiltJar =
-      new AnnotationProcessorTarget("//tools/java/src/com/facebook/library:prebuilt-processors") {
+  private TestBuildTargetTarget validPrebuiltJar =
+      new TestBuildTargetTarget("//tools/java/src/com/facebook/library:prebuilt-processors") {
         @Override
         public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
           return PrebuiltJarBuilder.createBuilder(target)
@@ -1445,8 +1563,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         }
       };
 
-  private AnnotationProcessorTarget validJavaBinary =
-      new AnnotationProcessorTarget("//tools/java/src/com/facebook/annotations:custom-processors") {
+  private TestBuildTargetTarget validJavaBinary =
+      new TestBuildTargetTarget("//tools/java/src/com/facebook/annotations:custom-processors") {
         @Override
         public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
           return new JavaBinaryRuleBuilder(target)
@@ -1455,8 +1573,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         }
       };
 
-  private AnnotationProcessorTarget validJavaLibrary =
-      new AnnotationProcessorTarget("//tools/java/src/com/facebook/somejava:library") {
+  private TestBuildTargetTarget validJavaLibrary =
+      new TestBuildTargetTarget("//tools/java/src/com/facebook/somejava:library") {
         @Override
         public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
           return JavaLibraryBuilder.createBuilder(target, testJavaBuckConfig)
@@ -1466,41 +1584,80 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         }
       };
 
-  private AnnotationProcessorTarget validJavaLibraryAbi =
-      new AnnotationProcessorTarget("//tools/java/src/com/facebook/somejava:library#class-abi") {
+  private TestBuildTargetTarget validJavaLibraryAbi =
+      new TestBuildTargetTarget("//tools/java/src/com/facebook/somejava:library#class-abi") {
         @Override
         public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
           return CalculateClassAbi.of(
               target,
-              new SourcePathRuleFinder(graphBuilder),
+              graphBuilder,
               new FakeProjectFilesystem(),
               TestBuildRuleParams.create(),
               FakeSourcePath.of("java/src/com/facebook/somejava/library/library-abi.jar"));
         }
       };
 
-  // Captures all the common code between the different annotation processing test scenarios.
-  private class AnnotationProcessingScenario {
-    private final AbstractAnnotationProcessingParams.Builder annotationProcessingParamsBuilder;
+  // Captures all the common code between the different
+  // javac plugins, either an annotation processing or a
+  // standard javac plugin, test scenarios.
+  private class TestJavaPluginScenario {
 
-    public AnnotationProcessingScenario() {
-      annotationProcessingParamsBuilder = AnnotationProcessingParams.builder();
+    private final AbstractJavacPluginParams.Builder annotationProcessorParams;
+    private final AbstractJavacPluginParams.Builder standardJavacPluginParams;
+
+    public TestJavaPluginScenario() {
+      annotationProcessorParams = JavacPluginParams.builder();
+      standardJavacPluginParams = JavacPluginParams.builder();
     }
 
-    public AbstractAnnotationProcessingParams.Builder getAnnotationProcessingParamsBuilder() {
-      return annotationProcessingParamsBuilder;
+    public AbstractJavacPluginParams.Builder getAnnotationProcessingParamsBuilder() {
+      return annotationProcessorParams;
     }
 
-    public void addAnnotationProcessorTarget(AnnotationProcessorTarget processor)
+    public AbstractJavacPluginParams.Builder getStandardJavacPluginParamsBuilder() {
+      return standardJavacPluginParams;
+    }
+
+    public void addAnnotationProcessorRule(BuildRule rule, String... processorNames) {
+      JavacPluginProperties.Builder propsBuilder = JavacPluginProperties.builder();
+      propsBuilder.addProcessorNames(processorNames);
+      propsBuilder.addDep(rule);
+      propsBuilder.setCanReuseClassLoader(true);
+      propsBuilder.setDoesNotAffectAbi(true);
+      propsBuilder.setSupportsAbiGenerationFromSource(true);
+      propsBuilder.setType(Type.ANNOTATION_PROCESSOR);
+
+      annotationProcessorParams.addPluginProperties(propsBuilder.build().resolve());
+    }
+
+    public void addAnnotationProcessorTarget(
+        TestBuildTargetTarget processor, String... processorNames)
         throws NoSuchBuildTargetException {
       BuildTarget target = processor.createTarget();
       BuildRule rule = processor.createRule(target);
+      addAnnotationProcessorRule(rule, processorNames);
+    }
 
-      annotationProcessingParamsBuilder.addLegacyAnnotationProcessorDeps(rule);
+    public void addStandardJavacPluginTarget(BuildRule rule, String pluginName)
+        throws NoSuchBuildTargetException {
+      JavacPluginProperties.Builder propsBuilder = JavacPluginProperties.builder();
+      propsBuilder.addProcessorNames(pluginName);
+      propsBuilder.addDep(rule);
+      propsBuilder.setCanReuseClassLoader(true);
+      propsBuilder.setDoesNotAffectAbi(true);
+      propsBuilder.setSupportsAbiGenerationFromSource(true);
+      propsBuilder.setType(Type.JAVAC_PLUGIN);
+
+      standardJavacPluginParams.addPluginProperties(propsBuilder.build().resolve());
     }
 
     public ImmutableList<String> buildAndGetCompileParameters()
         throws IOException, NoSuchBuildTargetException {
+      return buildAndGetCompileParameters(ImmutableSortedSet.of());
+    }
+
+    public ImmutableList<String> buildAndGetCompileParameters(
+        ImmutableSortedSet<Path> buildClasspath) throws IOException, NoSuchBuildTargetException {
       ProjectFilesystem projectFilesystem =
           TestProjectFilesystems.createProjectFilesystem(tmp.getRoot().toPath());
       DefaultJavaLibrary javaLibrary = createJavaLibraryRule(projectFilesystem);
@@ -1514,21 +1671,22 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
               .setDebugEnabled(true)
               .build();
 
-      return javacCommand.getOptions(
-          executionContext, /* buildClasspathEntries */ ImmutableSortedSet.of());
+      return javacCommand.getOptions(executionContext, buildClasspath);
     }
 
     private DefaultJavaLibrary createJavaLibraryRule(ProjectFilesystem projectFilesystem)
         throws IOException, NoSuchBuildTargetException {
-      BuildTarget buildTarget = BuildTargetFactory.newInstance(ANNOTATION_SCENARIO_TARGET);
+      BuildTarget buildTarget = BuildTargetFactory.newInstance(TEST_SCENARIO_TARGET);
 
       tmp.newFolder("android", "java", "src", "com", "facebook");
       String src = "android/java/src/com/facebook/Main.java";
       tmp.newFile(src);
 
-      AnnotationProcessingParams params = annotationProcessingParamsBuilder.build();
       JavacOptions options =
-          JavacOptions.builder(DEFAULT_JAVAC_OPTIONS).setAnnotationProcessingParams(params).build();
+          JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
+              .setJavaAnnotationProcessorParams(annotationProcessorParams.build())
+              .setStandardJavacPluginParams(standardJavacPluginParams.build())
+              .build();
 
       BuildRuleParams buildRuleParams = TestBuildRuleParams.create();
 

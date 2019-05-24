@@ -26,12 +26,10 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -47,7 +45,6 @@ import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ClassInfo;
 import com.facebook.buck.rules.modern.InputRuleResolver;
-import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
@@ -114,9 +111,9 @@ public class DefaultClassInfoTest {
 
   @Test
   public void testDerivedClass() {
-    BuildTarget target1 = ImmutableBuildTarget.of(Paths.get("some1"), "//some1", "name");
-    BuildTarget target2 = ImmutableBuildTarget.of(Paths.get("some2"), "//some2", "name");
-    BuildTarget target3 = ImmutableBuildTarget.of(Paths.get("some3"), "//some3", "name");
+    BuildTarget target1 = BuildTargetFactory.newInstance(Paths.get("some1"), "//some1", "name");
+    BuildTarget target2 = BuildTargetFactory.newInstance(Paths.get("some2"), "//some2", "name");
+    BuildTarget target3 = BuildTargetFactory.newInstance(Paths.get("some3"), "//some3", "name");
 
     BuildRule rule1 = new FakeBuildRule(target1, ImmutableSortedSet.of());
     BuildRule rule2 = new FakeBuildRule(target2, ImmutableSortedSet.of());
@@ -299,24 +296,7 @@ public class DefaultClassInfoTest {
         new NoOpModernBuildRule(
             BuildTargetFactory.newInstance("//some:target"),
             new FakeProjectFilesystem(),
-            new SourcePathRuleFinder(new TestActionGraphBuilder())));
-  }
-
-  static class NoOpModernBuildRule extends ModernBuildRule<NoOpModernBuildRule>
-      implements Buildable {
-    NoOpModernBuildRule(
-        BuildTarget buildTarget, ProjectFilesystem filesystem, SourcePathRuleFinder finder) {
-      super(buildTarget, filesystem, finder, NoOpModernBuildRule.class);
-    }
-
-    @Override
-    public ImmutableList<Step> getBuildSteps(
-        BuildContext buildContext,
-        ProjectFilesystem filesystem,
-        OutputPathResolver outputPathResolver,
-        BuildCellRelativePathFactory buildCellPathFactory) {
-      return ImmutableList.of();
-    }
+            new TestActionGraphBuilder()));
   }
 
   @Test(expected = Exception.class)

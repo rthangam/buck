@@ -1,6 +1,8 @@
+
 [repositories]
     buck = .
     bazel_skylib = ./third-party/skylark/bazel-skylib
+    testlib = test/com/facebook/buck/testutil/integration/testlibs
 [java]
     ; Indicates that any folder named src or test
     ; are folders that contain Java code.
@@ -14,6 +16,11 @@
     # (instead of as a separate step), this can become an error again:
     source_abi_verification_mode = fail
     compile_against_abis = True
+[kotlin]
+  # TODO: Put this in a shared location so Kotlin code under src/
+  # does not depend on files under test/. We should probably update the
+  # version of the Kotlin toolchain we use, as well.
+  kotlin_home = test/com/facebook/buck/jvm/kotlin/testdata/kotlinc/
 [alias]
     buck = //programs:buck
     buck-android-support = //android/com/facebook/buck/android/support:buck-android-support
@@ -71,10 +78,10 @@
     timeout = 90000
 [resources]
     resource_aware_scheduling_enabled = true
+
 [ui]
-     build_rule_minimum_duration_millis=500
-     maximum_target_typo_distance_allowed = 3
-     maximum_target_suggestions_display = 3
+  build_rule_minimum_duration_millis=500
 [parser]
-     default_build_file_syntax=skylark
-     enable_configurable_attributes = true
+  default_build_file_syntax=skylark
+  enable_configurable_attributes = true
+

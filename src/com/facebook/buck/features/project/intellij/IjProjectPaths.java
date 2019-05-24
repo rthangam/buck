@@ -15,8 +15,9 @@
  */
 package com.facebook.buck.features.project.intellij;
 
+import com.facebook.buck.features.project.intellij.model.IjLibrary;
 import com.facebook.buck.features.project.intellij.model.IjModule;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -58,7 +59,7 @@ public class IjProjectPaths {
 
   /** @return path relative to module path, prefixed with $MODULE_DIR$ */
   public String getModuleQualifiedPath(Path path, IjModule module) {
-    String relativePath = MorePaths.pathWithUnixSeparators(getModuleRelativePath(path, module));
+    String relativePath = PathFormatter.pathWithUnixSeparators(getModuleRelativePath(path, module));
     if (relativePath.isEmpty()) {
       return MODULE_DIR;
     } else {
@@ -69,6 +70,11 @@ public class IjProjectPaths {
   /** @return path relative to module dir, for a path relative to the project root */
   public Path getModuleRelativePath(Path path, IjModule module) {
     return getModuleDir(module).relativize(path);
+  }
+
+  /** @return path where the XML describing the IntelliJ library will be written to. */
+  public Path getLibraryXmlFilePath(IjLibrary library) {
+    return getLibrariesDir().resolve(Util.normalizeIntelliJName(library.getName()) + ".xml");
   }
 
   /**
@@ -82,13 +88,13 @@ public class IjProjectPaths {
     if (moduleRelativePath.isEmpty()) {
       return "";
     } else {
-      return "/" + MorePaths.pathWithUnixSeparators(moduleRelativePath);
+      return "/" + PathFormatter.pathWithUnixSeparators(moduleRelativePath);
     }
   }
 
   /** @return path relative to project root, prefixed with $PROJECT_DIR$ */
   public String getProjectQualifiedPath(Path path) {
-    String projectRelativePath = MorePaths.pathWithUnixSeparators(getProjectRelativePath(path));
+    String projectRelativePath = PathFormatter.pathWithUnixSeparators(getProjectRelativePath(path));
     if (projectRelativePath.isEmpty()) {
       return PROJECT_DIR;
     } else {

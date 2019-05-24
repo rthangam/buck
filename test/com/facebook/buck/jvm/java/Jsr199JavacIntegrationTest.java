@@ -20,22 +20,20 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.Javac.Invocation;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.MockClassLoader;
@@ -88,15 +86,15 @@ public class Jsr199JavacIntegrationTest {
     assertEquals(
         String.format(
             "javac -source %s -target %s -g " + "-d %s " + "-classpath '' " + "@" + pathToSrcsList,
-            JavacOptions.TARGETED_JAVA_VERSION,
-            JavacOptions.TARGETED_JAVA_VERSION,
+            AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
+            AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
             pathToOutputDir),
         javac.getDescription(
             ImmutableList.of(
                 "-source",
-                JavacOptions.TARGETED_JAVA_VERSION,
+                AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
                 "-target",
-                JavacOptions.TARGETED_JAVA_VERSION,
+                AbstractJavacLanguageLevelOptions.TARGETED_JAVA_VERSION,
                 "-g",
                 "-d",
                 pathToOutputDir,
@@ -133,9 +131,9 @@ public class Jsr199JavacIntegrationTest {
         javac
             .newBuildInvocation(
                 javacExecutionContext,
-                DefaultSourcePathResolver.from(
-                    new SourcePathRuleFinder(new TestActionGraphBuilder())),
+                new TestActionGraphBuilder().getSourcePathResolver(),
                 BuildTargetFactory.newInstance("//some:example"),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 SOURCE_PATHS,
@@ -188,9 +186,9 @@ public class Jsr199JavacIntegrationTest {
         javac
             .newBuildInvocation(
                 javacExecutionContext,
-                DefaultSourcePathResolver.from(
-                    new SourcePathRuleFinder(new TestActionGraphBuilder())),
+                new TestActionGraphBuilder().getSourcePathResolver(),
                 BuildTargetFactory.newInstance("//some:example"),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 SOURCE_PATHS,
@@ -293,9 +291,9 @@ public class Jsr199JavacIntegrationTest {
       javac
           .newBuildInvocation(
               javacExecutionContext,
-              DefaultSourcePathResolver.from(
-                  new SourcePathRuleFinder(new TestActionGraphBuilder())),
+              new TestActionGraphBuilder().getSourcePathResolver(),
               BuildTargetFactory.newInstance("//some:example"),
+              ImmutableList.of(),
               ImmutableList.of(),
               ImmutableList.of(),
               SOURCE_PATHS,
@@ -383,8 +381,9 @@ public class Jsr199JavacIntegrationTest {
     Invocation buildInvocation =
         javac.newBuildInvocation(
             javacExecutionContext,
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder())),
+            new TestActionGraphBuilder().getSourcePathResolver(),
             BuildTargetFactory.newInstance("//some:example"),
+            ImmutableList.of(),
             ImmutableList.of(),
             ImmutableList.of(),
             SOURCE_PATHS,

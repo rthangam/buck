@@ -34,8 +34,8 @@ import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
-import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.ImmutableDistBuildStatus;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveInfo;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
@@ -47,8 +47,9 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
@@ -81,9 +82,10 @@ public class SimpleConsoleEventBusListenerTest {
   private static final StampedeId STAMPEDE_ID_ONE = new StampedeId().setId("stampedeIdOne");
   private static final String STAMPEDE_ID_ONE_MESSAGE =
       "StampedeId=[stampedeIdOne]" + System.lineSeparator();
-  private static final String TARGET_ONE = "TARGET_ONE";
-  private static final String TARGET_TWO = "TARGET_TWO";
+  private static final String TARGET_ONE = "//target:one";
+  private static final String TARGET_TWO = "//target:two";
   private static final String SEVERE_MESSAGE = "This is a sample severe message.";
+  private static final String ADDITIONAL_LINE_PROVIDER_TEXT = "[additional line from the provider]";
 
   private static final String FINISHED_DOWNLOAD_STRING = "DOWNLOADED 0 ARTIFACTS, 0.00 BYTES";
 
@@ -105,42 +107,100 @@ public class SimpleConsoleEventBusListenerTest {
     console = new TestConsole();
   }
 
-  @Parameters(name = "{2}")
+  @Parameters(name = "{0}")
   public static Collection<Object[]> data() {
     return Arrays.asList(
         new Object[][] {
-          {false, Optional.empty(), "no_build_id_and_no_build_url"},
-          {true, Optional.empty(), "build_id_and_no_build_url"},
           {
-            true,
-            Optional.of("View details at https://example.com/build/{build_id}"),
-            "build_id_and_build_url"
+            "no_build_id_and_no_build_url",
+            false,
+            Optional.empty(),
+            ImmutableSet.of("build", "test", "install"),
+            Optional.empty(),
+            false,
           },
           {
+            "build_id_and_no_build_url",
+            true,
+            Optional.empty(),
+            ImmutableSet.of("build", "test", "install"),
+            Optional.empty(),
+            false,
+          },
+          {
+            "build_id_and_build_url",
+            true,
+            Optional.of("View details at https://example.com/build/{build_id}"),
+            ImmutableSet.of("build", "test", "install"),
+            Optional.empty(),
+            false,
+          },
+          {
+            "no_build_id_and_build_url",
             false,
             Optional.of("View details at https://example.com/build/{build_id}"),
-            "no_build_id_and_build_url"
-          }
+            ImmutableSet.of("build", "test", "install"),
+            Optional.empty(),
+            false,
+          },
+          {
+            "no_build_id_and_build_url_but_no_build_command",
+            false,
+            Optional.of("View details at https://example.com/build/{build_id}"),
+            ImmutableSet.of(),
+            Optional.empty(),
+            false,
+          },
+          {
+            "with_re_session_id",
+            false,
+            Optional.empty(),
+            ImmutableSet.of(),
+            Optional.of("super cool remote execution session id."),
+            false,
+          },
+          {
+            "with_additional_line_provider",
+            false,
+            Optional.empty(),
+            ImmutableSet.of(),
+            Optional.of("super cool remote execution session id."),
+            true,
+          },
         });
   }
 
   private final BuildId buildId = new BuildId("1234-5678");
 
   @Parameterized.Parameter(0)
-  public boolean printBuildId;
+  public String _ignoredName;
 
   @Parameterized.Parameter(1)
-  public Optional<String> buildDetailsTemplate;
+  public boolean printBuildId;
 
   @Parameterized.Parameter(2)
-  public String _ignoredName;
+  public Optional<String> buildDetailsTemplate;
+
+  @Parameterized.Parameter(3)
+  public ImmutableSet<String> buildDetailsCommands;
+
+  @Parameterized.Parameter(4)
+  public Optional<String> reSessionIdDetails;
+
+  @Parameterized.Parameter(5)
+  public boolean enableAdditionalLineProviders;
 
   @Test
   public void testSimpleBuild() {
-    setupSimpleConsole(false, printBuildId, buildDetailsTemplate);
+    setupSimpleConsole(
+        false, printBuildId, buildDetailsTemplate, reSessionIdDetails, buildDetailsCommands);
     String expectedOutput = "";
     if (printBuildId) {
       expectedOutput = "Build UUID: 1234-5678" + System.lineSeparator();
+    }
+    if (reSessionIdDetails.isPresent()) {
+      expectedOutput +=
+          "[RE] SessionInfo: [super cool remote execution session id.]." + System.lineSeparator();
     }
     assertOutput(expectedOutput, console);
 
@@ -175,10 +235,12 @@ public class SimpleConsoleEventBusListenerTest {
         configureTestEventAtTime(started, 600L, TimeUnit.MILLISECONDS, threadId));
 
     HttpArtifactCacheEvent.Scheduled storeScheduledOne =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_ONE, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, threadId, BuildTargetFactory.newInstance(TARGET_ONE), 700L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_TWO, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, threadId, BuildTargetFactory.newInstance(TARGET_TWO), 700L);
 
     HttpArtifactCacheEvent.Started storeStartedOne =
         ArtifactCacheTestUtils.postStoreStarted(eventBus, threadId, 710L, storeScheduledOne);
@@ -201,6 +263,7 @@ public class SimpleConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -213,6 +276,8 @@ public class SimpleConsoleEventBusListenerTest {
             threadId));
 
     expectedOutput += "BUILT  0.4s //banana:stand" + System.lineSeparator();
+
+    expectedOutput += getAdditionalLineProviderText();
 
     expectedOutput +=
         linesToText(
@@ -270,7 +335,7 @@ public class SimpleConsoleEventBusListenerTest {
     CommandEvent.Started commandStarted =
         CommandEvent.started("build", ImmutableList.of(), OptionalLong.of(100), 1234);
     eventBus.post(CommandEvent.finished(commandStarted, ExitCode.SUCCESS));
-    if (buildDetailsTemplate.isPresent()) {
+    if (buildDetailsCommands.contains("build") && buildDetailsTemplate.isPresent()) {
       expectedOutput +=
           "View details at https://example.com/build/1234-5678" + System.lineSeparator();
     }
@@ -303,12 +368,12 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
 
+    expectedOutput += getAdditionalLineProviderText();
+    expectedOutput += FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + System.lineSeparator();
     expectedOutput +=
         linesToText("BUILDING: FINISHED IN 1.0s 0/10 JOBS, 0 UPDATED", "BUILD SUCCEEDED", "");
 
-    assertOutput(
-        FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + System.lineSeparator() + expectedOutput,
-        console);
+    assertOutput(expectedOutput, console);
   }
 
   @Test
@@ -357,9 +422,10 @@ public class SimpleConsoleEventBusListenerTest {
             600L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
+    expectedOutput += "CREATING ACTION GRAPH: FINISHED IN 0.2s" + System.lineSeparator();
+    expectedOutput += getAdditionalLineProviderText();
     expectedOutput +=
         linesToText(
-            "CREATING ACTION GRAPH: FINISHED IN 0.2s",
             FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS",
             "BUILDING: FINISHED IN 0.1s",
             "BUILD SUCCEEDED",
@@ -388,7 +454,9 @@ public class SimpleConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new DistBuildStatusEvent(
-                job, DistBuildStatus.builder().setStatus(BuildStatus.QUEUED.toString()).build()),
+                job,
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.QUEUED.toString()), ImmutableList.of())),
             0,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -411,7 +479,9 @@ public class SimpleConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new DistBuildStatusEvent(
-                job, DistBuildStatus.builder().setStatus(BuildStatus.BUILDING.toString()).build()),
+                job,
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.BUILDING.toString()), ImmutableList.of())),
             1,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -426,7 +496,9 @@ public class SimpleConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new DistBuildStatusEvent(
-                job, DistBuildStatus.builder().setStatus(BuildStatus.BUILDING.toString()).build()),
+                job,
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.BUILDING.toString()), ImmutableList.of())),
             2,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -442,9 +514,8 @@ public class SimpleConsoleEventBusListenerTest {
         configureTestEventAtTime(
             new DistBuildStatusEvent(
                 job,
-                DistBuildStatus.builder()
-                    .setStatus(BuildStatus.FINISHED_SUCCESSFULLY.toString())
-                    .build()),
+                new ImmutableDistBuildStatus(
+                    Optional.of(BuildStatus.FINISHED_SUCCESSFULLY.toString()), ImmutableList.of())),
             3,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -508,6 +579,7 @@ public class SimpleConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -518,6 +590,8 @@ public class SimpleConsoleEventBusListenerTest {
             1234L,
             TimeUnit.MILLISECONDS,
             threadId));
+
+    expectedOutput += getAdditionalLineProviderText();
 
     expectedOutput +=
         linesToText(
@@ -546,11 +620,16 @@ public class SimpleConsoleEventBusListenerTest {
   }
 
   private void setupSimpleConsole(boolean hideSucceededRules) {
-    setupSimpleConsole(hideSucceededRules, false, Optional.empty());
+    setupSimpleConsole(
+        hideSucceededRules, false, Optional.empty(), Optional.empty(), ImmutableSet.of());
   }
 
   private void setupSimpleConsole(
-      boolean hideSucceededRules, boolean printBuildId, Optional<String> buildDetailsTemplate) {
+      boolean hideSucceededRules,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate,
+      Optional<String> reSessionIdInfo,
+      ImmutableSet<String> buildDetailsCommands) {
     SimpleConsoleEventBusListener listener =
         new SimpleConsoleEventBusListener(
             new RenderingConsole(fakeClock, console),
@@ -565,8 +644,25 @@ public class SimpleConsoleEventBusListenerTest {
                 EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             buildId,
             printBuildId,
-            buildDetailsTemplate);
+            buildDetailsTemplate,
+            buildDetailsCommands,
+            reSessionIdInfo,
+            enableAdditionalLineProviders ? createAdditionalLineProvider() : ImmutableList.of());
 
     listener.register(eventBus);
+  }
+
+  private ImmutableList<AdditionalConsoleLineProvider> createAdditionalLineProvider() {
+    AdditionalConsoleLineProvider provider =
+        currentTimeMillis -> ImmutableList.of(ADDITIONAL_LINE_PROVIDER_TEXT);
+    return ImmutableList.of(provider);
+  }
+
+  private String getAdditionalLineProviderText() {
+    if (enableAdditionalLineProviders) {
+      return ADDITIONAL_LINE_PROVIDER_TEXT + System.lineSeparator();
+    } else {
+      return "";
+    }
   }
 }

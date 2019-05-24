@@ -29,6 +29,7 @@ import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -152,9 +153,7 @@ public class JsLibraryDescriptionTest {
 
     BuildRule library = scenario.graphBuilder.requireRule(withFlavors);
     BuildRule filesRule =
-        library
-            .getBuildDeps()
-            .stream()
+        library.getBuildDeps().stream()
             .filter(rule -> rule instanceof JsLibrary.Files)
             .findAny()
             .get();
@@ -180,7 +179,8 @@ public class JsLibraryDescriptionTest {
     BuildRule filesRule = internalFileRule(scenario.graphBuilder);
     assertThat(
         filesRule.getBuildDeps(),
-        hasItems(Stream.of(a, b, c).map(JsFileMatcher::new).toArray(JsFileMatcher[]::new)));
+        hasItems(
+            Stream.of(a, b, c).map(JsFileMatcher::new).toArray(size -> new JsFileMatcher[size])));
   }
 
   @Test
@@ -232,10 +232,12 @@ public class JsLibraryDescriptionTest {
             .library(target, a, b)
             .build();
 
-    ImmutableMap<SourcePath, JsFileDev> fileRules =
+    ImmutableMap<SourcePath, JsFile> fileRules =
         findJsFileRules(scenario.graphBuilder)
-            .filter(JsFileDev.class)
-            .collect(ImmutableMap.toImmutableMap(JsFileDev::getSource, Function.identity()));
+            .filter(rule -> rule.getBuildable() instanceof JsFileDev)
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    rule -> ((JsFileDev) rule.getBuildable()).getSource(), Function.identity()));
 
     assertThat(a.getTarget(), in(getBuildDepsAsTargets(fileRules.get(a))));
     assertThat(b.getTarget(), not(in(getBuildDepsAsTargets(fileRules.get(a)))));
@@ -365,7 +367,7 @@ public class JsLibraryDescriptionTest {
             .bundleWithDeps(BuildTargetFactory.newInstance("//query-deps:bundle"))
             .library(
                 target,
-                Query.of(String.format("deps(%s)", x)),
+                Query.of(String.format("deps(%s)", x), EmptyTargetConfiguration.INSTANCE),
                 FakeSourcePath.of("arbitrary/source"))
             .build();
 
@@ -409,7 +411,7 @@ public class JsLibraryDescriptionTest {
             .bundleWithDeps(BuildTargetFactory.newInstance("//query-deps:bundle"))
             .library(
                 target,
-                Query.of(String.format("deps(%s)", x)),
+                Query.of(String.format("deps(%s)", x), EmptyTargetConfiguration.INSTANCE),
                 FakeSourcePath.of("arbitrary/source"))
             .build();
 
@@ -438,7 +440,11 @@ public class JsLibraryDescriptionTest {
     BuildTarget b = BuildTargetFactory.newInstance("//direct:dep");
 
     JsTestScenario scenario =
-        scenarioBuilder.library(a).library(b).library(target, Query.of(a.toString()), b).build();
+        scenarioBuilder
+            .library(a)
+            .library(b)
+            .library(target, Query.of(a.toString(), EmptyTargetConfiguration.INSTANCE), b)
+            .build();
 
     JsLibrary lib = scenario.graphBuilder.getRuleWithType(target, JsLibrary.class);
     ImmutableSortedSet<BuildRule> deps = scenario.graphBuilder.getAllRules(ImmutableList.of(a, b));
@@ -507,7 +513,11 @@ public class JsLibraryDescriptionTest {
   }
 
   private JsFile.JsFileDev findFirstJsFileDevRule(ActionGraphBuilder graphBuilder) {
-    return findJsFileRules(graphBuilder).filter(JsFileDev.class).findFirst().get();
+    return findJsFileRules(graphBuilder)
+        .map(JsFile::getBuildable)
+        .filter(JsFileDev.class)
+        .findFirst()
+        .get();
   }
 
   private JsLibrary.Files internalFileRule(ActionGraphBuilder graphBuilder) {
@@ -515,9 +525,7 @@ public class JsLibraryDescriptionTest {
   }
 
   private static ImmutableList<BuildTarget> getBuildDepsAsTargets(BuildRule buildRule) {
-    return buildRule
-        .getBuildDeps()
-        .stream()
+    return buildRule.getBuildDeps().stream()
         .map(BuildRule::getBuildTarget)
         .collect(ImmutableList.toImmutableList());
   }
@@ -554,7 +562,12 @@ public class JsLibraryDescriptionTest {
 
     @Override
     public boolean matches(Object o) {
-      return o instanceof JsFile.JsFileDev && ((JsFile.JsFileDev) o).getSource().equals(source);
+      return RichStream.of(o)
+          .filter(JsFile.class)
+          .map(JsFile::getBuildable)
+          .filter(JsFileDev.class)
+          .map(JsFileDev::getSource)
+          .allMatch(source::equals);
     }
 
     @Override

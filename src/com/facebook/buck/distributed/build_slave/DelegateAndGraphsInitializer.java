@@ -16,15 +16,17 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.impl.HostTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCachingEngineDelegate;
 import com.facebook.buck.distributed.DistBuildConfig;
@@ -32,15 +34,16 @@ import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -118,15 +121,19 @@ public class DelegateAndGraphsInitializer {
                   key -> Objects.requireNonNull(cells.get(key))));
 
       try {
-        if (args.getState().getRemoteRootCellConfig().getBuildVersions()) {
+        if (args.getState()
+            .getRemoteRootCellConfig()
+            .getView(BuildBuckConfig.class)
+            .getBuildVersions()) {
           targetGraph =
               args.getVersionedTargetGraphCache()
                   .toVersionedTargetGraph(
                       args.getBuckEventBus(),
                       args.getState().getRemoteRootCellConfig(),
-                      new DefaultTypeCoercerFactory(
-                          PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY),
-                      targetGraphAndBuildTargets)
+                      new DefaultTypeCoercerFactory(),
+                      new ParsingUnconfiguredBuildTargetViewFactory(),
+                      targetGraphAndBuildTargets,
+                      HostTargetConfiguration.INSTANCE)
                   .getTargetGraph();
         } else {
           targetGraph = targetGraphAndBuildTargets.getTargetGraph();
@@ -158,11 +165,9 @@ public class DelegateAndGraphsInitializer {
     DistBuildConfig remoteConfig = new DistBuildConfig(args.getState().getRemoteRootCellConfig());
     if (remoteConfig.materializeSourceFilesOnDemand()) {
       SourcePathRuleFinder ruleFinder =
-          new SourcePathRuleFinder(
-              Objects.requireNonNull(actionGraphAndBuilder).getActionGraphBuilder());
+          Objects.requireNonNull(actionGraphAndBuilder).getActionGraphBuilder();
       cachingBuildEngineDelegate =
           new DistBuildCachingEngineDelegate(
-              DefaultSourcePathResolver.from(ruleFinder),
               ruleFinder,
               caches.remoteStateCache,
               caches.materializingCache,
@@ -178,22 +183,23 @@ public class DelegateAndGraphsInitializer {
   private StackedFileHashCache createStackOfDefaultFileHashCache() throws InterruptedException {
     ImmutableList.Builder<ProjectFileHashCache> allCachesBuilder = ImmutableList.builder();
     Cell rootCell = args.getState().getRootCell();
+    BuildBuckConfig buildBuckConfig = rootCell.getBuckConfig().getView(BuildBuckConfig.class);
 
     // 1. Add all cells (including the root cell).
     for (Path cellPath : rootCell.getKnownRoots()) {
       Cell cell = rootCell.getCell(cellPath);
       allCachesBuilder.add(
           DefaultFileHashCache.createDefaultFileHashCache(
-              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+              cell.getFilesystem(), buildBuckConfig.getFileHashCacheMode()));
       allCachesBuilder.add(
           DefaultFileHashCache.createBuckOutFileHashCache(
-              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+              cell.getFilesystem(), buildBuckConfig.getFileHashCacheMode()));
     }
 
     // 2. Add the Operating System roots.
     allCachesBuilder.addAll(
         DefaultFileHashCache.createOsRootDirectoriesCaches(
-            args.getProjectFilesystemFactory(), rootCell.getBuckConfig().getFileHashCacheMode()));
+            args.getProjectFilesystemFactory(), buildBuckConfig.getFileHashCacheMode()));
 
     return new StackedFileHashCache(allCachesBuilder.build());
   }
@@ -205,8 +211,7 @@ public class DelegateAndGraphsInitializer {
     // shaved off in the versioned target graph, and so they don't get recorded in the distributed
     // state, and hence they're not pre-loaded. So even when we pre-load the files, we need this
     // hack so that the coercer does not check for existence of these unrecorded files.
-    TypeCoercerFactory typeCoercerFactory =
-        new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
+    TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             args.getKnownRuleTypesProvider(),
@@ -221,8 +226,10 @@ public class DelegateAndGraphsInitializer {
           try {
             return args.getParser()
                 .getTargetNodeRawAttributes(
-                    args.getState().getRootCell().getCell(input.getBuildTarget()),
-                    args.getExecutorService(),
+                    ParsingContext.builder(
+                            args.getState().getRootCell().getCell(input.getBuildTarget()),
+                            args.getExecutorService())
+                        .build(),
                     input);
           } catch (BuildFileParseException e) {
             throw new RuntimeException(e);

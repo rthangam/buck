@@ -24,6 +24,8 @@ import com.facebook.buck.doctor.config.DoctorEndpointResponse;
 import com.facebook.buck.doctor.config.DoctorIssueCategory;
 import com.facebook.buck.doctor.config.DoctorProtocolVersion;
 import com.facebook.buck.doctor.config.DoctorSuggestion;
+import com.facebook.buck.doctor.config.ImmutableDoctorEndpointResponse;
+import com.facebook.buck.doctor.config.ImmutableDoctorEndpointRequest;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
@@ -126,7 +128,7 @@ public class DoctorReportHelper {
       machineLog = Optional.empty();
     }
 
-    return DoctorEndpointRequest.of(
+    return new ImmutableDoctorEndpointRequest(
         entry.getBuildId(),
         entry.getRelativePath().toString(),
         machineLog,
@@ -291,7 +293,7 @@ public class DoctorReportHelper {
   private DoctorEndpointResponse createErrorDoctorEndpointResponse(String errorMessage) {
     console.printErrorText(errorMessage);
     LOG.error(errorMessage);
-    return DoctorEndpointResponse.of(Optional.of(errorMessage), ImmutableList.of());
+    return new ImmutableDoctorEndpointResponse(Optional.of(errorMessage), ImmutableList.of());
   }
 
   @VisibleForTesting

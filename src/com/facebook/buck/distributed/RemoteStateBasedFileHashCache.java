@@ -16,9 +16,9 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.collect.Maps;
@@ -79,16 +79,15 @@ public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
   }
 
   @Override
-  public HashCode get(ArchiveMemberPath archiveMemberRelPath) throws IOException {
+  public HashCode getForArchiveMember(Path relativeArchivePath, Path memberPath)
+      throws IOException {
     HashCode hashCode =
-        remoteArchiveHashes.get(
-            archiveMemberRelPath.withArchivePath(
-                filesystem.resolve(archiveMemberRelPath.getArchivePath())));
+        remoteArchiveHashes.get(ArchiveMemberPath.of(relativeArchivePath, memberPath));
     if (hashCode != null) {
       return hashCode;
     }
 
-    return delegate.get(archiveMemberRelPath);
+    return delegate.getForArchiveMember(relativeArchivePath, memberPath);
   }
 
   @Override

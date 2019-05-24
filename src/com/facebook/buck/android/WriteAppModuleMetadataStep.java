@@ -18,8 +18,9 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -44,8 +45,10 @@ public class WriteAppModuleMetadataStep implements Step {
   private final Optional<Path> proguardFullConfigFile;
   private final Optional<Path> proguardMappingFile;
   private final boolean skipProguard;
+  private final boolean shouldIncludeClasses;
 
   public static final String CLASS_SECTION_HEADER = "CLASSES";
+  public static final String TARGETS_SECTION_HEADER = "TARGETS";
   public static final String DEPS_SECTION_HEADER = "DEPS";
   public static final String MODULE_INDENTATION = "  ";
   public static final String ITEM_INDENTATION = "    ";
@@ -57,7 +60,8 @@ public class WriteAppModuleMetadataStep implements Step {
       ProjectFilesystem filesystem,
       Optional<Path> proguardFullConfigFile,
       Optional<Path> proguardMappingFile,
-      boolean skipProguard) {
+      boolean skipProguard,
+      boolean shouldIncludeClasses) {
     this.metadataOutput = metadataOutput;
     this.apkModuleToJarPathMap = apkModuleToJarPathMap;
     this.apkModuleGraph = apkModuleGraph;
@@ -65,6 +69,7 @@ public class WriteAppModuleMetadataStep implements Step {
     this.proguardFullConfigFile = proguardFullConfigFile;
     this.proguardMappingFile = proguardMappingFile;
     this.skipProguard = skipProguard;
+    this.shouldIncludeClasses = shouldIncludeClasses;
   }
 
   public static WriteAppModuleMetadataStep writeModuleMetadata(
@@ -74,7 +79,8 @@ public class WriteAppModuleMetadataStep implements Step {
       ProjectFilesystem filesystem,
       Optional<Path> proguardFullConfigFile,
       Optional<Path> proguardMappingFile,
-      boolean skipProguard) {
+      boolean skipProguard,
+      boolean shouldIncludeClasses) {
     return new WriteAppModuleMetadataStep(
         metadataOut,
         apkModuleToJarPathMap,
@@ -82,7 +88,8 @@ public class WriteAppModuleMetadataStep implements Step {
         filesystem,
         proguardFullConfigFile,
         proguardMappingFile,
-        skipProguard);
+        skipProguard,
+        shouldIncludeClasses);
   }
 
   @Override
@@ -92,11 +99,22 @@ public class WriteAppModuleMetadataStep implements Step {
       ProguardTranslatorFactory translatorFactory =
           ProguardTranslatorFactory.create(
               filesystem, proguardFullConfigFile, proguardMappingFile, skipProguard);
-      ImmutableMultimap<APKModule, String> moduleToClassesMap =
-          APKModuleGraph.getAPKModuleToClassesMap(
-              apkModuleToJarPathMap, translatorFactory.createObfuscationFunction(), filesystem);
-      TreeMultimap<APKModule, String> orderedModuleToClassesMap =
-          sortModuleToStringsMultimap(moduleToClassesMap);
+      TreeMultimap<APKModule, String> orderedModuleToClassesMap = null;
+      if (shouldIncludeClasses) {
+        ImmutableMultimap<APKModule, String> moduleToClassesMap =
+            APKModuleGraph.getAPKModuleToClassesMap(
+                apkModuleToJarPathMap, translatorFactory.createObfuscationFunction(), filesystem);
+        orderedModuleToClassesMap = sortModuleToStringsMultimap(moduleToClassesMap);
+      }
+
+      TreeMultimap<APKModule, String> orderedModuleToTargetsMap =
+          TreeMultimap.create(
+              (left, right) -> left.getName().compareTo(right.getName()), Ordering.natural());
+      for (APKModule module : apkModuleGraph.getAPKModules()) {
+        for (BuildTarget target : apkModuleGraph.getBuildTargets(module)) {
+          orderedModuleToTargetsMap.put(module, target.getFullyQualifiedName());
+        }
+      }
 
       // Module to module deps map is already sorted
       SortedMap<APKModule, ? extends SortedSet<APKModule>> moduleToDepsMap =
@@ -104,8 +122,12 @@ public class WriteAppModuleMetadataStep implements Step {
 
       // Write metdata lines to output
       LinkedList<String> metadataLines = new LinkedList<>();
-      metadataLines.add(CLASS_SECTION_HEADER);
-      writeModuleToStringsMultimap(orderedModuleToClassesMap, metadataLines);
+      if (orderedModuleToClassesMap != null) {
+        metadataLines.add(CLASS_SECTION_HEADER);
+        writeModuleToStringsMultimap(orderedModuleToClassesMap, metadataLines);
+      }
+      metadataLines.add(TARGETS_SECTION_HEADER);
+      writeModuleToStringsMultimap(orderedModuleToTargetsMap, metadataLines);
       metadataLines.add(DEPS_SECTION_HEADER);
       writeModuleToModulesMap(moduleToDepsMap, metadataLines);
       filesystem.writeLinesToPath(metadataLines, metadataOutput);

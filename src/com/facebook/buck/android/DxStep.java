@@ -23,10 +23,10 @@ import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.DiagnosticsHandler;
 import com.android.tools.r8.OutputMode;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
@@ -102,6 +102,8 @@ public class DxStep extends ShellStep {
   private final Optional<String> maxHeapSize;
   private final String dexTool;
   private final boolean intermediate;
+  // used to differentiate different dexing buckets (if any)
+  private final Optional<String> bucketId;
 
   @Nullable private Collection<String> resourcesReferencedInCode;
 
@@ -175,7 +177,8 @@ public class DxStep extends ShellStep {
         maxHeapSize,
         dexTool,
         intermediate,
-        null);
+        null,
+        Optional.empty());
   }
 
   /**
@@ -196,7 +199,8 @@ public class DxStep extends ShellStep {
       Optional<String> maxHeapSize,
       String dexTool,
       boolean intermediate,
-      @Nullable Collection<Path> classpathFiles) {
+      @Nullable Collection<Path> classpathFiles,
+      Optional<String> bucketId) {
     super(filesystem.getRootPath());
     this.filesystem = filesystem;
     this.androidPlatformTarget = androidPlatformTarget;
@@ -207,6 +211,7 @@ public class DxStep extends ShellStep {
     this.maxHeapSize = maxHeapSize;
     this.dexTool = dexTool;
     this.intermediate = intermediate;
+    this.bucketId = bucketId;
 
     Preconditions.checkArgument(
         !options.contains(Option.RUN_IN_PROCESS)
@@ -339,6 +344,11 @@ public class DxStep extends ShellStep {
                         : CompilationMode.RELEASE)
                 .setOutput(output, OutputMode.DexIndexed)
                 .setDisableDesugaring(options.contains(Option.NO_DESUGAR));
+
+        if (bucketId.isPresent()) {
+          builder.setBucketId(bucketId.get());
+        }
+
         if (classpathFiles != null && !classpathFiles.isEmpty()) {
           // classpathFiles is needed only for D8 java 8 desugar
           ImmutableSet.Builder<Path> absolutePaths = ImmutableSet.builder();
@@ -364,9 +374,7 @@ public class DxStep extends ShellStep {
             ConsoleEvent.severe(
                 String.join(
                     System.lineSeparator(),
-                    diagnosticsHandler
-                        .diagnostics
-                        .stream()
+                    diagnosticsHandler.diagnostics.stream()
                         .map(Diagnostic::getDiagnosticMessage)
                         .collect(ImmutableList.toImmutableList()))));
         e.printStackTrace(context.getStdErr());

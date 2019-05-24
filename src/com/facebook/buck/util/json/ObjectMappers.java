@@ -17,16 +17,25 @@
 package com.facebook.buck.util.json;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.raw.RawTargetNodeWithDeps;
+import com.facebook.buck.core.parser.buildtargetpattern.UnconfiguredBuildTargetParser;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.type.WritableTypeId;
+import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.deser.std.FromStringDeserializer;
+import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.fasterxml.jackson.datatype.guava.GuavaModule;
@@ -37,6 +46,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -127,6 +137,17 @@ public class ObjectMappers {
     return create();
   }
 
+  /**
+   * Creates an {@link ObjectMapper} that allows to use objects without fields.
+   *
+   * @see SerializationFeature#FAIL_ON_EMPTY_BEANS
+   */
+  public static ObjectMapper createWithEmptyBeansPermitted() {
+    ObjectMapper objectMapper = create();
+    objectMapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+    return objectMapper;
+  }
+
   // Callers must not modify (i.e. reconfigure) this ObjectMapper.
   private static final ObjectMapper mapper;
 
@@ -134,7 +155,7 @@ public class ObjectMappers {
   private static final JsonFactory jsonFactory;
 
   static {
-    mapper = create();
+    mapper = create_without_type();
     READER = mapper.reader();
     WRITER = mapper.writer();
     jsonFactory = mapper.getFactory();
@@ -159,9 +180,69 @@ public class ObjectMappers {
     // prefix. That does not work well with custom filesystems that Buck uses. Following hack
     // restores legacy behavior to serialize Paths using toString().
     SimpleModule pathModule = new SimpleModule("PathToString");
-    pathModule.addSerializer(Path.class, new ToStringSerializer());
+
+    /**
+     * Custom Path serializer that serializes using {@link Object#toString()} method and also
+     * translates all {@link Path} implementations to use generic base type
+     */
+    class PathSerializer extends ToStringSerializer {
+      public PathSerializer() {
+        super(Path.class);
+      }
+
+      @Override
+      public void serializeWithType(
+          Object value, JsonGenerator g, SerializerProvider provider, TypeSerializer typeSer)
+          throws IOException {
+        WritableTypeId typeIdDef =
+            typeSer.writeTypePrefix(g, typeSer.typeId(value, Path.class, JsonToken.VALUE_STRING));
+        serialize(value, g, provider);
+        typeSer.writeTypeSuffix(g, typeIdDef);
+      }
+    }
+
+    pathModule.addSerializer(Path.class, new PathSerializer());
+    pathModule.addDeserializer(
+        Path.class,
+        new FromStringDeserializer<Path>(Path.class) {
+          @Override
+          protected Path _deserialize(String value, DeserializationContext ctxt) {
+            return Paths.get(value);
+          }
+
+          @Override
+          protected Path _deserializeFromEmptyString() {
+            // by default it returns null but we want empty Path
+            return Paths.get("");
+          }
+        });
     mapper.registerModule(pathModule);
 
+    return mapper;
+  }
+
+  private static ObjectMapper create_without_type() {
+    ObjectMapper mapper = create();
+
+    // with this mixin RawTargetNode properties are flattened with RawTargetNodeWithDeps properties
+    // for prettier view. It only works for non-typed serialization.
+    mapper.addMixIn(
+        RawTargetNodeWithDeps.class,
+        RawTargetNodeWithDeps.RawTargetNodeWithDepsUnwrappedMixin.class);
+
+    // Serialize and deserialize UnconfiguredBuildTarget as string
+    SimpleModule buildTargetModule = new SimpleModule("BuildTarget");
+    buildTargetModule.addSerializer(UnconfiguredBuildTarget.class, new ToStringSerializer());
+    buildTargetModule.addDeserializer(
+        UnconfiguredBuildTarget.class,
+        new FromStringDeserializer<UnconfiguredBuildTarget>(UnconfiguredBuildTarget.class) {
+          @Override
+          protected UnconfiguredBuildTarget _deserialize(
+              String value, DeserializationContext ctxt) {
+            return UnconfiguredBuildTargetParser.parse(value);
+          }
+        });
+    mapper.registerModule(buildTargetModule);
     return mapper;
   }
 

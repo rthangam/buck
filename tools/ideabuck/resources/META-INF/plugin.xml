@@ -1,18 +1,41 @@
 <idea-plugin>
   <id>intellij.buck.plugin</id>
   <name>Buck for IDEA</name>
-  <version>3.7-SNAPSHOT</version>
+  <version>3.7.4-SNAPSHOT</version>
   <category>Build</category>
   <vendor email="fb-plugins@fb.com" url="www.facebook.com">Facebook, Inc.</vendor>
 
   <description><![CDATA[
-    An IntelliJ plugin for <a href="https://buckbuild.com">the Buck build system.</a>
+    An IntelliJ plugin for <a href="https://buck.build">the Buck build system.</a>
   ]]></description>
 
   <change-notes><![CDATA[
+<h3>3.7.4</h3>
+<ul>
+</ul>
+<h3>3.7.3</h3>
+<ul>
+  <li>Fixes to make triggering buck from IntelliJ more consistent with
+  invoking it from the command-line.</li>
+  <li>Improved cell discovery in prefs.</li>
+</ul>
+</h3>
+<h3>3.7.2</h3>
+<ul>
+  <li>Make grammar fully Starlark-compatible.</li>
+  <li>Support reference navigation for identifiers in Starlark files.</li>
+  <li>Support folding of various multi-line Starlark elements (function definitions,
+      collections/comprehensions, etc.).</li>
+  <li>Support structure view.</li>
+</ul>
+<h3>3.7.1</h3>
+<ul>
+  <li>Rebuild for changes in buck core re: test results.</li>
+</ul>
 <h3>3.7</h3>
 <ul>
-  <li></li>
+  <li>Add editor support for <code>.buckconfig</code> files, including
+      <code>.buckconfig.local</code> and <code>*.bcfg</code> files.</li>
 </ul>
 <h3>3.6.1</h3>
 <ul>
@@ -213,22 +236,28 @@
   <depends optional="true">org.jetbrains.android</depends>
 
   <extensions defaultExtensionNs="com.intellij">
-    <fileTypeFactory implementation="com.facebook.buck.intellij.ideabuck.file.BuckFileTypeFactory"/>
+    <fileTypeFactory implementation="com.facebook.buck.intellij.ideabuck.lang.BuckFileTypeFactory"/>
+    <fileTypeFactory implementation="com.facebook.buck.intellij.ideabuck.lang.BcfgFileTypeFactory"/>
     <lang.parserDefinition
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.lang.BuckParserDefinition"/>
+    <lang.parserDefinition
+      language="Buckconfig"
+      implementationClass="com.facebook.buck.intellij.ideabuck.lang.BcfgParserDefinition"/>
     <lang.syntaxHighlighterFactory
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.highlight.BuckSyntaxHighlighterFactory"/>
-    <lang.formatter
-      language="Buck"
-      implementationClass="com.facebook.buck.intellij.ideabuck.format.BuckFormattingModelBuilder"/>
+    <lang.syntaxHighlighterFactory
+      language="Buckconfig"
+      implementationClass="com.facebook.buck.intellij.ideabuck.highlight.BcfgSyntaxHighlighterFactory"/>
     <lang.importOptimizer
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.format.BuckImportOptimizer"/>
     <lang.foldingBuilder
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.folding.BuckFoldingBuilder"/>
+    <lang.foldingBuilder language="Buckconfig"
+      implementationClass="com.facebook.buck.intellij.ideabuck.folding.BcfgFoldingBuilder"/>
     <codeInsight.unresolvedReferenceQuickFixProvider
       implementation="com.facebook.buck.intellij.ideabuck.autodeps.BuckAutoDepsQuickFixProvider"/>
     <completion.contributor
@@ -244,18 +273,29 @@
     <gotoDeclarationHandler
       implementation="com.facebook.buck.intellij.ideabuck.navigation.BuckGotoProvider"
       order="FIRST"/>
+    <gotoDeclarationHandler
+      implementation="com.facebook.buck.intellij.ideabuck.navigation.BcfgGotoFileProvider"
+      language="Buckconfig"/>
     <annotator language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.annotator.BuckAnnotator"/>
+    <annotator language="Buckconfig"
+      implementationClass="com.facebook.buck.intellij.ideabuck.annotator.BcfgAnnotator"/>
     <colorSettingsPage
       implementation="com.facebook.buck.intellij.ideabuck.config.BuckColorSettingsPage"/>
+    <colorSettingsPage
+      implementation="com.facebook.buck.intellij.ideabuck.config.BcfgColorSettingsPage"/>
     <lang.commenter language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.commenter.BuckCommenter"/>
+    <lang.commenter language="Buckconfig"
+      implementationClass="com.facebook.buck.intellij.ideabuck.commenter.BcfgCommenter"/>
     <lang.braceMatcher
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.format.BuckBraceMatcher"/>
+    <lang.refactoringSupport language="Buck" implementationClass="com.facebook.buck.intellij.ideabuck.lang.BuckIdentifierRefactoringSupportProvider"/>
     <quoteHandler
       fileType="Buck"
       className="com.facebook.buck.intellij.ideabuck.format.BuckQuoteHandler"/>
+    <lang.psiStructureViewFactory language="Buck" implementationClass="com.facebook.buck.intellij.ideabuck.structure.BuckStructureViewFactory"/>
     <copyPastePreProcessor
       implementation="com.facebook.buck.intellij.ideabuck.format.BuckCopyPasteProcessor"/>
     <toolWindow
@@ -278,6 +318,8 @@
       implementation="com.facebook.buck.intellij.ideabuck.configurations.TestConfigurationType"/>
     <programRunner
       implementation="com.facebook.buck.intellij.ideabuck.configurations.TestProgramRunner"/>
+    <psi.referenceContributor implementation="com.facebook.buck.intellij.ideabuck.lang.BuckIdentifierReferenceContributor"/>
+
     <runLineMarkerContributor language="JAVA"
       implementationClass="com.facebook.buck.intellij.ideabuck.actions.select.SelectedTestRunLineMarkerContributor"/>
     <additionalTextAttributes scheme="Default" file="colorSchemes/BuckDefault.xml"/>
@@ -289,13 +331,8 @@
     <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$Declaration"/>
     <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$InString"/>
     <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$NamedArgument"/>
-    <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$SingleExpression"/>
+    <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$SimpleExpression"/>
     <liveTemplateContext implementation="com.facebook.buck.intellij.ideabuck.completion.BuckCodeContexts$Statement"/>
-  </extensions>
-
-  <extensions defaultExtensionNs="com.android.project">
-    <featureEnableService
-      implementation="com.facebook.buck.intellij.ideabuck.proj.BuckFeatureEnableService"/>
   </extensions>
 
   <actions>

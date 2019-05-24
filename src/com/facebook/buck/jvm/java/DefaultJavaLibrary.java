@@ -31,7 +31,6 @@ import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
-import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -91,7 +90,6 @@ public class DefaultJavaLibrary
         InitializableFromDisk<JavaLibrary.Data>,
         AndroidPackageable,
         MaybeRequiredForSourceOnlyAbi,
-        SupportsInputBasedRuleKey,
         SupportsDependencyFileRuleKey,
         JavaLibraryWithTests {
 
@@ -445,12 +443,12 @@ public class DefaultJavaLibrary
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return getBuildable().getCoveredByDepFilePredicate(pathResolver, ruleFinder);
+    return getBuildable().getCoveredByDepFilePredicate(ruleFinder);
   }
 
   @Override
   public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
-    return getBuildable().getExistenceOfInterestPredicate(pathResolver);
+    return getBuildable().getExistenceOfInterestPredicate();
   }
 
   @Override

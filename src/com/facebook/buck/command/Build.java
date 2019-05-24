@@ -17,21 +17,20 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
 import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
@@ -40,7 +39,6 @@ import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CleanBuildShutdownException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
@@ -108,12 +106,15 @@ public class Build implements Closeable {
     return BuildEngineBuildContext.builder()
         .setBuildContext(
             BuildContext.builder()
-                .setSourcePathResolver(
-                    DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)))
+                .setSourcePathResolver(graphBuilder.getSourcePathResolver())
                 .setBuildCellRootPath(rootCell.getRoot())
                 .setJavaPackageFinder(javaPackageFinder)
                 .setEventBus(executionContext.getBuckEventBus())
-                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
+                .setShouldDeleteTemporaries(
+                    rootCell
+                        .getBuckConfig()
+                        .getView(BuildBuckConfig.class)
+                        .getShouldDeleteTemporaries())
                 .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)
@@ -173,7 +174,7 @@ public class Build implements Closeable {
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths configuredPaths = filesystem.getBuckPaths();
       if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
-          && buckConfig.getBuckOutCompatLink()
+          && buckConfig.getView(BuildBuckConfig.class).getBuckOutCompatLink()
           && Platform.detect() != Platform.WINDOWS) {
         BuckPaths unconfiguredPaths =
             configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
@@ -220,8 +221,7 @@ public class Build implements Closeable {
 
     ImmutableList<BuildRule> rulesToBuild =
         ImmutableList.copyOf(
-            targetsToBuild
-                .stream()
+            targetsToBuild.stream()
                 .map(buildTarget -> getGraphBuilder().requireRule(buildTarget))
                 .collect(ImmutableSet.toImmutableSet()));
 
@@ -259,8 +259,7 @@ public class Build implements Closeable {
 
       return BuildExecutionResult.builder()
           .setFailures(
-              buildResults
-                  .stream()
+              buildResults.stream()
                   .filter(input -> !input.isSuccess())
                   .collect(Collectors.toList()))
           .setResults(resultBuilder)
@@ -298,8 +297,7 @@ public class Build implements Closeable {
 
     setupBuildSymlinks();
 
-    return rulesToBuild
-        .stream()
+    return rulesToBuild.stream()
         .map(rule -> buildEngine.build(buildContext, executionContext, rule))
         .collect(ImmutableList.toImmutableList());
   }
@@ -353,9 +351,8 @@ public class Build implements Closeable {
       throws IOException {
     int exitCode;
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-    BuildReport buildReport = new BuildReport(buildExecutionResult, pathResolver);
+    BuildReport buildReport =
+        new BuildReport(buildExecutionResult, graphBuilder.getSourcePathResolver(), rootCell);
 
     if (buildContext.isKeepGoing()) {
       String buildReportText = buildReport.generateForConsole(console);
@@ -447,9 +444,9 @@ public class Build implements Closeable {
       BuckEventBus eventBus, Path pathToBuildReport, BuildExecutionException e) {
     // Note that pathToBuildReport is an absolute path that may exist outside of the project
     // root, so it is not appropriate to use ProjectFilesystem to write the output.
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-    BuildReport buildReport = new BuildReport(e.createBuildExecutionResult(), pathResolver);
+    BuildReport buildReport =
+        new BuildReport(
+            e.createBuildExecutionResult(), graphBuilder.getSourcePathResolver(), rootCell);
     try {
       String jsonBuildReport = buildReport.generateJsonBuildReport();
       eventBus.post(BuildEvent.buildReport(jsonBuildReport));
